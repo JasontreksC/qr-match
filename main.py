@@ -7,6 +7,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+MATCH_ROUND = 1
+if MATCH_ROUND not in (1, 2):
+    raise ValueError("MATCH_ROUND는 1 또는 2여야 합니다.")
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(ROOT, "matching_state")
 PAIRS_CSV = os.path.join(STATE_DIR, "pairs.csv")
@@ -322,8 +326,10 @@ def fetch_students(conn) -> tuple[dict, list[str], list[str]]:
     FROM student s
     LEFT JOIN ex_want ew ON ew.student_id = s.student_id
     LEFT JOIN ex_have eh ON eh.student_id = s.student_id
+    WHERE s.round = %s
     ORDER BY s.student_id;
-            """
+            """,
+            (MATCH_ROUND,),
         )
         rows = [row[0] for row in cur.fetchall()]
     if not rows:
@@ -336,13 +342,13 @@ def fetch_students(conn) -> tuple[dict, list[str], list[str]]:
 
 def truncate_match_result(conn) -> None:
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE TABLE match_result")
+        cur.execute("DELETE FROM match_result WHERE round = %s", (MATCH_ROUND,))
     conn.commit()
 
 
 def already_committed_ranks(conn) -> set[int]:
     with conn.cursor() as cur:
-        cur.execute("SELECT rank FROM match_result")
+        cur.execute("SELECT rank FROM match_result WHERE round = %s", (MATCH_ROUND,))
         return {row[0] for row in cur.fetchall()}
 
 
@@ -352,8 +358,8 @@ def insert_match_result(conn, item: dict) -> None:
             """
             INSERT INTO match_result (
                 rank, male_id, female_id,
-                mbti_score, tag_score, ex_score, final_score
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                mbti_score, tag_score, ex_score, final_score, round
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 item["순위"],
@@ -363,6 +369,7 @@ def insert_match_result(conn, item: dict) -> None:
                 item["tag_score"],
                 item["ex_score"],
                 item["final_score"],
+                MATCH_ROUND,
             ),
         )
     conn.commit()
@@ -377,8 +384,8 @@ def start_fresh_job(male_ids: list[str], female_ids: list[str], conn) -> int:
     total = write_pairs_csv(male_ids, female_ids)
     _atomic_write(PROGRESS_FILE, "1")
     _atomic_write(PHASE_FILE, "scoring")
-    print(f"새 매칭 시작: 곱집합 {total}쌍 저장 → {PAIRS_CSV}")
-    print("match_result 테이블을 TRUNCATE했습니다.")
+    print(f"새 매칭 시작: {MATCH_ROUND}차, 곱집합 {total}쌍 저장 → {PAIRS_CSV}")
+    print(f"match_result에서 {MATCH_ROUND}차 행을 삭제했습니다.")
     return total
 
 
