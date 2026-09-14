@@ -1,9 +1,11 @@
 import csv
+import json
 import os
 from typing import Iterator
 
 import psycopg
 from dotenv import load_dotenv
+from psycopg.types.json import Jsonb
 
 load_dotenv()
 
@@ -29,6 +31,7 @@ SCORE_FIELDS = [
     "mbti_score",
     "tag_score",
     "ex_score",
+    "ex_detail",
     "final_score",
 ]
 SELECTED_FIELDS = [
@@ -38,6 +41,7 @@ SELECTED_FIELDS = [
     "mbti_score",
     "tag_score",
     "ex_score",
+    "ex_detail",
     "final_score",
 ]
 PERSON_FIELDS = [
@@ -161,6 +165,22 @@ def iter_pairs_from(start_row: int, path: str = PAIRS_CSV) -> Iterator[dict]:
             yield row
 
 
+def _parse_ex_detail(raw: str | None):
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _dump_ex_detail(detail) -> str:
+    if not detail:
+        return ""
+    return json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
+
+
 def append_score_row(row: dict, path: str = SCORES_CSV) -> None:
     new_file = not os.path.exists(path) or os.path.getsize(path) == 0
     with open(path, "a", newline="", encoding="utf-8") as f:
@@ -186,6 +206,7 @@ def load_scored_rows(path: str = SCORES_CSV) -> list[dict]:
                     "mbti_score": float(row["mbti_score"]),
                     "tag_score": float(row["tag_score"]),
                     "ex_score": float(row["ex_score"]),
+                    "ex_detail": _parse_ex_detail(row.get("ex_detail")),
                     "final_score": float(row["final_score"]),
                 }
             )
@@ -226,6 +247,7 @@ def write_selected_csv(matches: list[dict], path: str = SELECTED_CSV) -> None:
                     "mbti_score": f"{item['mbti_score']:.6f}",
                     "tag_score": f"{item['tag_score']:.6f}",
                     "ex_score": f"{item['ex_score']:.6f}",
+                    "ex_detail": _dump_ex_detail(item.get("ex_detail")),
                     "final_score": f"{item['final_score']:.6f}",
                 }
             )
@@ -244,6 +266,7 @@ def load_selected_csv(path: str = SELECTED_CSV) -> list[dict]:
                     "mbti_score": float(row["mbti_score"]),
                     "tag_score": float(row["tag_score"]),
                     "ex_score": float(row["ex_score"]),
+                    "ex_detail": _parse_ex_detail(row.get("ex_detail")),
                     "final_score": float(row["final_score"]),
                 }
             )
@@ -358,8 +381,8 @@ def insert_match_result(conn, item: dict) -> None:
             """
             INSERT INTO match_result (
                 rank, male_id, female_id,
-                mbti_score, tag_score, ex_score, final_score, round
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                mbti_score, tag_score, ex_score, ex_detail, final_score, round
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 item["순위"],
@@ -368,6 +391,7 @@ def insert_match_result(conn, item: dict) -> None:
                 item["mbti_score"],
                 item["tag_score"],
                 item["ex_score"],
+                None if item.get("ex_detail") is None else Jsonb(item["ex_detail"]),
                 item["final_score"],
                 MATCH_ROUND,
             ),
@@ -417,6 +441,7 @@ def score_remaining_pairs(students: dict, start_row: int, total: int) -> None:
                     "mbti_score": "",
                     "tag_score": "",
                     "ex_score": "",
+                    "ex_detail": "",
                     "final_score": "",
                 }
             )
@@ -425,7 +450,7 @@ def score_remaining_pairs(students: dict, start_row: int, total: int) -> None:
 
         ms = mbti_score(m["mbti"], w["mbti"])
         ts = tag_score(m["want"] or [], m["have"] or [], w["want"] or [], w["have"] or [])
-        es = ex_score(m["ex_want"], m["ex_have"], w["ex_want"], w["ex_have"])
+        es, ex_detail = ex_score(m["ex_want"], m["ex_have"], w["ex_want"], w["ex_have"])
         final_score = ms * 0.1 + ts * 0.6 + es * 0.3
         append_score_row(
             {
@@ -436,6 +461,7 @@ def score_remaining_pairs(students: dict, start_row: int, total: int) -> None:
                 "mbti_score": f"{ms:.6f}",
                 "tag_score": f"{ts:.6f}",
                 "ex_score": f"{es:.6f}",
+                "ex_detail": _dump_ex_detail(ex_detail),
                 "final_score": f"{final_score:.6f}",
             }
         )

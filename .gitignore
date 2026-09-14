@@ -1,6 +1,6 @@
 /.env
 /.vscode
-/__pycache__
+__pycache__/
 /matching_state
 /output.csv
 /tempCodeRunnerFile.py

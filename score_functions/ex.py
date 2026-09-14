@@ -75,14 +75,23 @@ class ExScore(BaseModel):
         ]
 
     def avg_score(self) -> float:
-        scored = [
-            item.points()
-            for _, item in self.criteria()
-            if item.match_kind != "none"
-        ]
-        if not scored:
-            return 0.0
-        return sum(scored) / (len(scored) * MAX_POINTS)
+        items = [item.points() for _, item in self.criteria()]
+        return sum(items) / (len(items) * MAX_POINTS)
+
+    def payload(self) -> dict:
+        return {
+            "score": self.avg_score(),
+            "criteria": [
+                {
+                    "criterion": name,
+                    "match_kind": item.match_kind,
+                    "points": item.points(),
+                    "evidence": item.evidence,
+                    "reason": item.reason,
+                }
+                for name, item in self.criteria()
+            ],
+        }
 
 
 def make_prompt(ex_want: str | None, ex_have: str | None) -> str:
@@ -93,7 +102,8 @@ def make_prompt(ex_want: str | None, ex_have: str | None) -> str:
 
 각 기준마다 순서: (1) evidence 인용 → (2) match_kind 선택 → (3) reason 작성.
 주어진 두 텍스트에 적힌 내용만 사용한다. 없는 성격·외모·말투·유머·에너지를 추측하지 않는다.
-짧은 자유 텍스트는 보통 1~2개 기준만 해당한다. 해당하지 않으면 none이다.
+단서가 있는 기준은 해당하는 칸에 분류하고, 단서가 없는 기준만 none이다.
+글이 짧다고 해당하는 기준을 줄이지 말고, 없는 내용으로 칸을 채우지도 마라.
 
 ## 평가 기준과 단서의 범위
 1. 성격의 조화 (combination): 성격, 태도, 가치관, 관계에서의 성향.
@@ -128,7 +138,7 @@ def _openai_client() -> OpenAI:
     return _client
 
 
-def _one_way_score(ex_want: str | None, ex_have: str | None) -> float:
+def _one_way_score(ex_want: str | None, ex_have: str | None) -> ExScore:
     completion = _openai_client().chat.completions.parse(
         model=os.getenv("OPENAI_MODEL", "gpt-5.6-luna"),
         messages=[
@@ -142,6 +152,7 @@ def _one_way_score(ex_want: str | None, ex_have: str | None) -> float:
             {"role": "user", "content": make_prompt(ex_want, ex_have)},
         ],
         response_format=ExScore,
+        temperature=0,
         reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "none"),
     )
     message = completion.choices[0].message
@@ -149,7 +160,7 @@ def _one_way_score(ex_want: str | None, ex_have: str | None) -> float:
         raise RuntimeError(f"모델이 응답을 거부함: {message.refusal}")
     if message.parsed is None:
         raise RuntimeError("모델이 구조화 응답을 반환하지 않음")
-    return message.parsed.avg_score()
+    return message.parsed
 
 
 def _harmonic_mean(a: float, b: float) -> float:
@@ -158,7 +169,11 @@ def _harmonic_mean(a: float, b: float) -> float:
     return 2 * a * b / (a + b)
 
 
-def ex_score(exw_a: str, exh_a: str, exw_b: str, exh_b: str) -> float:
+def ex_score(exw_a: str, exh_a: str, exw_b: str, exh_b: str) -> tuple[float, dict]:
     a_to_b = _one_way_score(exw_a, exh_b)
     b_to_a = _one_way_score(exw_b, exh_a)
-    return _harmonic_mean(a_to_b, b_to_a)
+    detail = {
+        "male_to_female": a_to_b.payload(),
+        "female_to_male": b_to_a.payload(),
+    }
+    return _harmonic_mean(a_to_b.avg_score(), b_to_a.avg_score()), detail
