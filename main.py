@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MATCH_ROUND = os.getenv('MATCH_ROUND', 1)
+MATCH_ROUND = int(os.getenv('MATCH_ROUND', 1))
 if MATCH_ROUND not in (1, 2):
     raise ValueError("MATCH_ROUND는 1 또는 2여야 합니다.")
 
