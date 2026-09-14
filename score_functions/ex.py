@@ -159,10 +159,6 @@ def _harmonic_mean(a: float, b: float) -> float:
 
 
 def ex_score(exw_a: str, exh_a: str, exw_b: str, exh_b: str) -> float:
-    # 테스트용. openai 크레딧 아끼기.
-    import time, random
-    time.sleep(1)
-    return float(random.randint(0, 10) / 10)
-    # a_to_b = _one_way_score(exw_a, exh_b)
-    # b_to_a = _one_way_score(exw_b, exh_a)
-    # return _harmonic_mean(a_to_b, b_to_a)
+    a_to_b = _one_way_score(exw_a, exh_b)
+    b_to_a = _one_way_score(exw_b, exh_a)
+    return _harmonic_mean(a_to_b, b_to_a)

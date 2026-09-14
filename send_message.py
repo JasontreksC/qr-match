@@ -18,11 +18,10 @@ SUCCESS_RESULT_CODES = {"0", "00"}
 MULTIPART_BOUNDARY = "____boundary____"
 
 DEFAULT_MESSAGE = (
-    "[QRrious - QR소개팅]\n"
-    "{이름}님, 축하드립니다! {n}차 접수에서 매칭되셨습니다.\n"
-    "아래 링크에서 로그인하여 매칭된 상대방을 확인해보세요.\n"
-    "https://qrious-ysu.vercel.app\n"
-    "접수하셨던 폼과 같은 주소이니 안심하셔도 좋아요."
+    "[QRious - QR소개팅]\n"
+    "축하합니다!\n"
+    "매칭 상대를 확인해보세요.\n"
+    "https://qrious-ysu.vercel.app"
 )
 
 
