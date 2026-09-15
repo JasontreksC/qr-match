@@ -3,4 +3,5 @@
 __pycache__/
 /matching_state
 /output.csv
+/매칭결과_*.csv
 /tempCodeRunnerFile.py
