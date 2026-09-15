@@ -194,8 +194,10 @@ def fetch_matches(conn, round_no: int) -> list[dict]:
                 fs.name AS female_name,
                 fs.phone AS female_phone
             FROM match_result mr
-            JOIN student ms ON ms.student_id = mr.male_id
-            JOIN student fs ON fs.student_id = mr.female_id
+            JOIN registration rm ON rm.registration_id = mr.male_id
+            JOIN student ms ON ms.student_id = rm.student_id
+            JOIN registration rf ON rf.registration_id = mr.female_id
+            JOIN student fs ON fs.student_id = rf.student_id
             WHERE mr.round = %s
             ORDER BY mr.rank
             """,
@@ -209,7 +211,7 @@ def already_sent_keys(conn, round_no: int) -> set[tuple[int, str]]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT DISTINCT rank, student_id
+            SELECT DISTINCT rank, registration_id
             FROM match_message
             WHERE round = %s AND success = TRUE
             """,
@@ -223,13 +225,13 @@ def insert_message_log(conn, row: dict[str, Any]) -> None:
         cur.execute(
             """
             INSERT INTO match_message (
-                round, rank, student_id, role,
+                round, rank, registration_id, role,
                 receiver_phone, sender_phone, message_body,
                 success, http_status, api_code, api_response,
                 msg_group_id, msg_type, block_cnt, fail_cnt,
                 success_cnt, test_yn, error_text
             ) VALUES (
-                %(round)s, %(rank)s, %(student_id)s, %(role)s,
+                %(round)s, %(rank)s, %(registration_id)s, %(role)s,
                 %(receiver_phone)s, %(sender_phone)s, %(message_body)s,
                 %(success)s, %(http_status)s, %(api_code)s, %(api_response)s,
                 %(msg_group_id)s, %(msg_type)s, %(block_cnt)s, %(fail_cnt)s,
@@ -245,7 +247,7 @@ def recipients_for(match: dict) -> list[dict]:
     return [
         {
             "role": "male",
-            "student_id": match["male_id"],
+            "registration_id": match["male_id"],
             "receiver_name": match["male_name"],
             "receiver_phone": match["male_phone"],
             "partner_name": match["female_name"],
@@ -253,7 +255,7 @@ def recipients_for(match: dict) -> list[dict]:
         },
         {
             "role": "female",
-            "student_id": match["female_id"],
+            "registration_id": match["female_id"],
             "receiver_name": match["female_name"],
             "receiver_phone": match["female_phone"],
             "partner_name": match["male_name"],
@@ -275,7 +277,7 @@ def empty_log(
     return {
         "round": round_no,
         "rank": match["rank"],
-        "student_id": person["student_id"],
+        "registration_id": person["registration_id"],
         "role": person["role"],
         "receiver_phone": receiver or (person["receiver_phone"] or ""),
         "sender_phone": sender,
@@ -327,10 +329,10 @@ def send_for_round(round_no: int, dry_run: bool, force: bool, test_send: bool) -
         ok = fail = skip = 0
         for match in matches:
             for person in recipients_for(match):
-                key = (match["rank"], person["student_id"])
+                key = (match["rank"], person["registration_id"])
                 label = (
                     f"{round_no}차 #{match['rank']} "
-                    f"{person['receiver_name']}({person['student_id']})"
+                    f"{person['receiver_name']}({person['registration_id']})"
                 )
                 if key in sent:
                     skip += 1
@@ -390,7 +392,7 @@ def send_for_round(round_no: int, dry_run: bool, force: bool, test_send: bool) -
                     {
                         "round": round_no,
                         "rank": match["rank"],
-                        "student_id": person["student_id"],
+                        "registration_id": person["registration_id"],
                         "role": person["role"],
                         "receiver_phone": receiver,
                         "sender_phone": sender,

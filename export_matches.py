@@ -24,7 +24,7 @@ HEADERS = [
     "매력태그점수",
     "기타매력점수",
     "남_이름",
-    "남_나이",
+    "남_생년월일",
     "남_전공",
     "남_MBTI",
     "남_전화번호",
@@ -34,7 +34,7 @@ HEADERS = [
     "남_기타매력",
     "남_기타이상형",
     "여_이름",
-    "여_나이",
+    "여_생년월일",
     "여_전공",
     "여_MBTI",
     "여_전화번호",
@@ -122,16 +122,16 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                 mr.ex_score,
                 mr.ex_detail,
                 ms.name,
-                ms.age,
+                ms.birth,
                 COALESCE(mm.name, ''),
-                ms.mbti,
+                mr_m.mbti,
                 ms.phone,
                 COALESCE(
                     (
                         SELECT string_agg(c.name, ', ' ORDER BY c.name)
                         FROM have h
                         JOIN charm c ON c.charm_id = h.charm_id
-                        WHERE h.student_id = ms.student_id
+                        WHERE h.registration_id = mr.male_id
                     ),
                     ''
                 ),
@@ -140,7 +140,7 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                         SELECT string_agg(c.name, ', ' ORDER BY c.name)
                         FROM want w
                         JOIN charm c ON c.charm_id = w.charm_id
-                        WHERE w.student_id = ms.student_id
+                        WHERE w.registration_id = mr.male_id
                     ),
                     ''
                 ),
@@ -149,23 +149,23 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                         SELECT string_agg(ap.name, ', ' ORDER BY ap.sort_order)
                         FROM prefer_age pa
                         JOIN age_pref ap ON ap.age_pref_id = pa.age_pref_id
-                        WHERE pa.student_id = ms.student_id
+                        WHERE pa.registration_id = mr.male_id
                     ),
                     ''
                 ),
                 COALESCE(meh.charm, ''),
                 COALESCE(mew.charm, ''),
                 fs.name,
-                fs.age,
+                fs.birth,
                 COALESCE(fm.name, ''),
-                fs.mbti,
+                mr_f.mbti,
                 fs.phone,
                 COALESCE(
                     (
                         SELECT string_agg(c.name, ', ' ORDER BY c.name)
                         FROM have h
                         JOIN charm c ON c.charm_id = h.charm_id
-                        WHERE h.student_id = fs.student_id
+                        WHERE h.registration_id = mr.female_id
                     ),
                     ''
                 ),
@@ -174,7 +174,7 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                         SELECT string_agg(c.name, ', ' ORDER BY c.name)
                         FROM want w
                         JOIN charm c ON c.charm_id = w.charm_id
-                        WHERE w.student_id = fs.student_id
+                        WHERE w.registration_id = mr.female_id
                     ),
                     ''
                 ),
@@ -183,21 +183,23 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                         SELECT string_agg(ap.name, ', ' ORDER BY ap.sort_order)
                         FROM prefer_age pa
                         JOIN age_pref ap ON ap.age_pref_id = pa.age_pref_id
-                        WHERE pa.student_id = fs.student_id
+                        WHERE pa.registration_id = mr.female_id
                     ),
                     ''
                 ),
                 COALESCE(feh.charm, ''),
                 COALESCE(few.charm, '')
             FROM match_result mr
-            JOIN student ms ON ms.student_id = mr.male_id
-            JOIN student fs ON fs.student_id = mr.female_id
+            JOIN registration mr_m ON mr_m.registration_id = mr.male_id
+            JOIN student ms ON ms.student_id = mr_m.student_id
+            JOIN registration mr_f ON mr_f.registration_id = mr.female_id
+            JOIN student fs ON fs.student_id = mr_f.student_id
             LEFT JOIN major mm ON mm.major_id = ms.major_id
             LEFT JOIN major fm ON fm.major_id = fs.major_id
-            LEFT JOIN ex_have meh ON meh.student_id = ms.student_id
-            LEFT JOIN ex_want mew ON mew.student_id = ms.student_id
-            LEFT JOIN ex_have feh ON feh.student_id = fs.student_id
-            LEFT JOIN ex_want few ON few.student_id = fs.student_id
+            LEFT JOIN ex_have meh ON meh.registration_id = mr.male_id
+            LEFT JOIN ex_want mew ON mew.registration_id = mr.male_id
+            LEFT JOIN ex_have feh ON feh.registration_id = mr.female_id
+            LEFT JOIN ex_want few ON few.registration_id = mr.female_id
             WHERE mr.round = %s
             ORDER BY mr.rank
             """,

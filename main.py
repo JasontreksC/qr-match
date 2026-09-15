@@ -45,10 +45,10 @@ SELECTED_FIELDS = [
     "final_score",
 ]
 PERSON_FIELDS = [
-    ("student_id", "ID"),
+    ("registration_id", "ID"),
     ("name", "이름"),
     ("gender", "성별"),
-    ("age", "나이"),
+    ("birth", "생년월일"),
     ("mbti", "MBTI"),
     ("phone", "전화번호"),
     ("have", "가진매력"),
@@ -310,18 +310,19 @@ def fetch_students(conn) -> tuple[dict, list[str], list[str]]:
         cur.execute(
             """
     SELECT jsonb_build_object(
+    'registration_id', r.registration_id,
     'student_id', s.student_id,
     'name', s.name,
     'gender', s.gender,
-    'age', s.age,
-    'mbti', s.mbti,
+    'birth', s.birth,
+    'mbti', r.mbti,
     'phone', s.phone,
     'want', COALESCE(
         (
         SELECT jsonb_agg(c.name ORDER BY c.name)
         FROM want w
         JOIN charm c ON c.charm_id = w.charm_id
-        WHERE w.student_id = s.student_id
+        WHERE w.registration_id = r.registration_id
         ),
         '[]'::jsonb
     ),
@@ -330,7 +331,7 @@ def fetch_students(conn) -> tuple[dict, list[str], list[str]]:
         SELECT jsonb_agg(c.name ORDER BY c.name)
         FROM have h
         JOIN charm c ON c.charm_id = h.charm_id
-        WHERE h.student_id = s.student_id
+        WHERE h.registration_id = r.registration_id
         ),
         '[]'::jsonb
     ),
@@ -339,27 +340,28 @@ def fetch_students(conn) -> tuple[dict, list[str], list[str]]:
         SELECT jsonb_agg(ap.name ORDER BY ap.sort_order)
         FROM prefer_age pa
         JOIN age_pref ap ON ap.age_pref_id = pa.age_pref_id
-        WHERE pa.student_id = s.student_id
+        WHERE pa.registration_id = r.registration_id
         ),
         '[]'::jsonb
     ),
     'ex_want', ew.charm,
     'ex_have', eh.charm
     ) AS student
-    FROM student s
-    LEFT JOIN ex_want ew ON ew.student_id = s.student_id
-    LEFT JOIN ex_have eh ON eh.student_id = s.student_id
-    WHERE s.round = %s
-    ORDER BY s.student_id;
+    FROM registration r
+    JOIN student s ON s.student_id = r.student_id
+    LEFT JOIN ex_want ew ON ew.registration_id = r.registration_id
+    LEFT JOIN ex_have eh ON eh.registration_id = r.registration_id
+    WHERE r.round = %s
+    ORDER BY r.registration_id;
             """,
             (MATCH_ROUND,),
         )
         rows = [row[0] for row in cur.fetchall()]
     if not rows:
         raise Exception("쿼리 결과가 없음!")
-    students = {r["student_id"]: r for r in rows}
-    male_ids = [r["student_id"] for r in rows if r["gender"] is False]
-    female_ids = [r["student_id"] for r in rows if r["gender"] is True]
+    students = {r["registration_id"]: r for r in rows}
+    male_ids = [r["registration_id"] for r in rows if r["gender"] is False]
+    female_ids = [r["registration_id"] for r in rows if r["gender"] is True]
     return students, male_ids, female_ids
 
 
@@ -414,7 +416,7 @@ def start_fresh_job(male_ids: list[str], female_ids: list[str], conn) -> int:
 
 
 def score_remaining_pairs(students: dict, start_row: int, total: int) -> None:
-    from score_functions.age import age_accepts
+    from score_functions.age import birth_accepts
     from score_functions.mbti import mbti_score
     from score_functions.tag import tag_score
     from score_functions.ex import ex_score
@@ -428,8 +430,8 @@ def score_remaining_pairs(students: dict, start_row: int, total: int) -> None:
 
         m = students[mid]
         w = students[wid]
-        age_ok = age_accepts(m["age"], w["age"], m["age_pref"] or []) and age_accepts(
-            w["age"], m["age"], w["age_pref"] or []
+        age_ok = birth_accepts(m.get("birth"), w.get("birth"), m["age_pref"] or []) and birth_accepts(
+            w.get("birth"), m.get("birth"), w["age_pref"] or []
         )
         if not age_ok:
             append_score_row(
@@ -535,7 +537,7 @@ def main() -> None:
         ]
         print(f"최종 매칭 {len(matches)}쌍 → {OUTPUT_CSV} / match_result")
         if unmatched:
-            names = ", ".join(f"{s['name']}({s['student_id']})" for s in unmatched)
+            names = ", ".join(f"{s['name']}({s['registration_id']})" for s in unmatched)
             print(f"미매칭 {len(unmatched)}명: {names}")
 
 

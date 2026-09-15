@@ -1,7 +1,7 @@
 """가상 남·여 10명씩 테스트 접수 데이터를 넣는다.
 
-같은 student_id / google_sub 를 쓰기 때문에 여러 번 실행해도 쌓이지 않고
-해당 차수 테스트 행만 지운 뒤 다시 넣는다.
+사람(`student`)은 slot(sm01/sw01)으로 고정하고, 차수별 접수(`registration`)만
+다시 넣기 때문에 여러 번 실행해도 쌓이지 않는다.
 
   python db_scripts/test_people.py
   python db_scripts/test_people.py --round 2
@@ -20,13 +20,11 @@ from dotenv import load_dotenv
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(ROOT, ".env"))
 
-GOOGLE_SUB_PREFIX = "test-people-"
 CONSENT_VERSION = "2026.09.09-3"
 THIRD_PARTY_CONSENT_VERSION = "2026.09.09-3-tp"
 USER_AGENT = "qr-match/db_scripts/test_people.py"
 
-# 1차 student_id 는 sm01 / sw01. 2차는 sm01-r2 / sw01-r2 (PK가 student_id 하나라서).
-# google_sub 는 차수와 무관하게 계정 하나.
+# 사람 PK는 sm01 / sw01. 1차 접수는 같은 id, 2차는 sm01-r2.
 PEOPLE: list[dict] = [
     {
         "slot": "sm01",
@@ -310,16 +308,12 @@ PEOPLE: list[dict] = [
     },
 ]
 
-def student_id_for(slot: str, round_no: int) -> str:
+def student_id_for(slot: str) -> str:
+    return slot
+
+
+def registration_id_for(slot: str, round_no: int) -> str:
     return slot if round_no == 1 else f"{slot}-r2"
-
-
-def google_sub_for(slot: str) -> str:
-    return f"{GOOGLE_SUB_PREFIX}{slot}"
-
-
-def email_for(slot: str) -> str:
-    return f"{slot}@qrious.test"
 
 
 def parse_args() -> argparse.Namespace:
@@ -390,77 +384,97 @@ def require_consent_notices(cur) -> dict[str, tuple[str, str]]:
     return notices
 
 
-def test_student_ids(cur, round_no: int | None) -> list[str]:
+def test_registration_ids(cur, round_no: int | None) -> list[str]:
     if round_no is None:
         cur.execute(
             """
-            SELECT student_id
-            FROM student
-            WHERE google_sub LIKE %s
-               OR student_id ~ '^(sm|sw)[0-9]{2}(-r2)?$'
-            """,
-            (f"{GOOGLE_SUB_PREFIX}%",),
+            SELECT registration_id
+            FROM registration
+            WHERE registration_id ~ '^(sm|sw)[0-9]{2}(-r2)?$'
+               OR student_id ~ '^(sm|sw)[0-9]{2}$'
+            """
         )
     else:
-        ids = [student_id_for(person["slot"], round_no) for person in PEOPLE]
+        ids = [registration_id_for(person["slot"], round_no) for person in PEOPLE]
         cur.execute(
             """
-            SELECT student_id
-            FROM student
-            WHERE (google_sub LIKE %s AND round = %s)
-               OR student_id = ANY(%s)
+            SELECT registration_id
+            FROM registration
+            WHERE round = %s
+              AND (
+                registration_id = ANY(%s)
+                OR student_id ~ '^(sm|sw)[0-9]{2}$'
+              )
             """,
-            (f"{GOOGLE_SUB_PREFIX}%", round_no, ids),
+            (round_no, ids),
         )
     return [row[0] for row in cur.fetchall()]
 
 
-def delete_students(cur, student_ids: list[str]) -> int:
-    if not student_ids:
+def delete_registrations(cur, registration_ids: list[str]) -> int:
+    if not registration_ids:
         return 0
-    cur.execute("DELETE FROM consent WHERE student_id = ANY(%s)", (student_ids,))
     cur.execute(
-        "DELETE FROM student WHERE student_id = ANY(%s) RETURNING student_id",
-        (student_ids,),
+        "DELETE FROM consent WHERE registration_id = ANY(%s)",
+        (registration_ids,),
     )
-    return len(cur.fetchall())
-
-
-def delete_orphan_google_users(cur) -> int:
     cur.execute(
         """
-        DELETE FROM google_user gu
-        WHERE gu.google_sub LIKE %s
-          AND NOT EXISTS (
-            SELECT 1 FROM student s WHERE s.google_sub = gu.google_sub
-          )
-        RETURNING google_sub
+        DELETE FROM registration
+        WHERE registration_id = ANY(%s)
+        RETURNING registration_id
         """,
-        (f"{GOOGLE_SUB_PREFIX}%",),
+        (registration_ids,),
     )
-    return len(cur.fetchall())
+    deleted = len(cur.fetchall())
+    cur.execute(
+        """
+        DELETE FROM student s
+        WHERE s.student_id ~ '^(sm|sw)[0-9]{2}$'
+          AND NOT EXISTS (
+            SELECT 1 FROM registration r WHERE r.student_id = s.student_id
+          )
+        """
+    )
+    return deleted
 
 
-def upsert_google_users(cur) -> None:
+def birth_from_age(age: int) -> str:
+    year = 2026 - int(age)
+    return f"{year % 100:02d}0101"
+
+
+def upsert_students(cur) -> None:
     rows = [
-        (google_sub_for(person["slot"]), email_for(person["slot"]), f"{person['name']}(학생)")
+        (
+            student_id_for(person["slot"]),
+            person["name"],
+            person["phone"],
+            person["gender"],
+            birth_from_age(person["age"]),
+            person["major_id"],
+        )
         for person in PEOPLE
     ]
     cur.executemany(
         """
-        INSERT INTO google_user (google_sub, email, name)
-        VALUES (%s, %s, %s)
-        ON CONFLICT (google_sub) DO UPDATE
-        SET email = EXCLUDED.email,
-            name = EXCLUDED.name,
-            last_login_at = now()
+        INSERT INTO student (student_id, name, phone, gender, birth, major_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (student_id) DO UPDATE
+        SET name = EXCLUDED.name,
+            phone = EXCLUDED.phone,
+            gender = EXCLUDED.gender,
+            birth = EXCLUDED.birth,
+            major_id = EXCLUDED.major_id
         """,
         rows,
     )
 
 
-def insert_people(cur, round_no: int, charm_ids: dict[str, str], notices: dict[str, tuple[str, str]]) -> None:
-    students = []
+def insert_registrations(
+    cur, round_no: int, charm_ids: dict[str, str], notices: dict[str, tuple[str, str]]
+) -> None:
+    registrations = []
     prefs = []
     haves = []
     wants = []
@@ -469,68 +483,52 @@ def insert_people(cur, round_no: int, charm_ids: dict[str, str], notices: dict[s
     consents = []
 
     for person in PEOPLE:
-        sid = student_id_for(person["slot"], round_no)
-        sub = google_sub_for(person["slot"])
-        students.append(
-            (
-                sid,
-                person["name"],
-                person["phone"],
-                person["gender"],
-                person["age"],
-                person["mbti"],
-                sub,
-                email_for(person["slot"]),
-                person["major_id"],
-                round_no,
-            )
-        )
+        sid = student_id_for(person["slot"])
+        rid = registration_id_for(person["slot"], round_no)
+        registrations.append((rid, sid, round_no, person["mbti"]))
         for pref_id in person["age_prefs"]:
-            prefs.append((sid, pref_id))
+            prefs.append((rid, pref_id))
         for name in person["have"]:
-            haves.append((sid, charm_ids[name]))
+            haves.append((rid, charm_ids[name]))
         for name in person["want"]:
-            wants.append((sid, charm_ids[name]))
-        ex_haves.append((sid, person["ex_have"]))
-        ex_wants.append((sid, person["ex_want"]))
+            wants.append((rid, charm_ids[name]))
+        ex_haves.append((rid, person["ex_have"]))
+        ex_wants.append((rid, person["ex_want"]))
         for version in (CONSENT_VERSION, THIRD_PARTY_CONSENT_VERSION):
             body, body_hash = notices[version]
-            consents.append((sid, version, True, body, body_hash, USER_AGENT))
+            consents.append((rid, version, True, body, body_hash, USER_AGENT))
 
     cur.executemany(
         """
-        INSERT INTO student (
-            student_id, name, phone, gender, age, mbti,
-            google_sub, email, major_id, round
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO registration (registration_id, student_id, round, mbti)
+        VALUES (%s, %s, %s, %s)
         """,
-        students,
+        registrations,
     )
     cur.executemany(
-        "INSERT INTO prefer_age (student_id, age_pref_id) VALUES (%s, %s)",
+        "INSERT INTO prefer_age (registration_id, age_pref_id) VALUES (%s, %s)",
         prefs,
     )
     cur.executemany(
-        "INSERT INTO have (student_id, charm_id) VALUES (%s, %s)",
+        "INSERT INTO have (registration_id, charm_id) VALUES (%s, %s)",
         haves,
     )
     cur.executemany(
-        "INSERT INTO want (student_id, charm_id) VALUES (%s, %s)",
+        "INSERT INTO want (registration_id, charm_id) VALUES (%s, %s)",
         wants,
     )
     cur.executemany(
-        "INSERT INTO ex_have (student_id, charm) VALUES (%s, %s)",
+        "INSERT INTO ex_have (registration_id, charm) VALUES (%s, %s)",
         ex_haves,
     )
     cur.executemany(
-        "INSERT INTO ex_want (student_id, charm) VALUES (%s, %s)",
+        "INSERT INTO ex_want (registration_id, charm) VALUES (%s, %s)",
         ex_wants,
     )
     cur.executemany(
         """
         INSERT INTO consent (
-            student_id, notice_version, agreed, consent_text_snapshot,
+            registration_id, notice_version, agreed, consent_text_snapshot,
             consent_hash, user_agent
         )
         VALUES (%s, %s, %s, %s, %s, %s)
@@ -548,30 +546,29 @@ def main() -> None:
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
             if args.purge:
-                ids = test_student_ids(cur, None)
-                deleted = delete_students(cur, ids)
-                orphans = delete_orphan_google_users(cur)
+                ids = test_registration_ids(cur, None)
+                deleted = delete_registrations(cur, ids)
                 conn.commit()
-                print(f"테스트 접수 {deleted}명 삭제, google_user {orphans}명 정리")
+                print(f"테스트 접수 {deleted}건 삭제")
                 return
 
-            round_no = 2 #resolve_round(args.round)
+            round_no = resolve_round(args.round)
             charm_ids = fetch_charm_ids(cur)
             require_charms(charm_ids)
             require_majors(cur)
             notices = require_consent_notices(cur)
 
-            ids = test_student_ids(cur, round_no)
-            deleted = delete_students(cur, ids)
-            upsert_google_users(cur)
-            insert_people(cur, round_no, charm_ids, notices)
+            ids = test_registration_ids(cur, round_no)
+            deleted = delete_registrations(cur, ids)
+            upsert_students(cur)
+            insert_registrations(cur, round_no, charm_ids, notices)
             conn.commit()
 
             male = sum(1 for p in PEOPLE if p["gender"] is False)
             female = sum(1 for p in PEOPLE if p["gender"] is True)
             print(
                 f"{round_no}차 테스트 접수 {male}남 {female}여 넣음"
-                + (f" (기존 {deleted}명 교체)" if deleted else "")
+                + (f" (기존 {deleted}건 교체)" if deleted else "")
             )
 
 

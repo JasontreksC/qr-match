@@ -2,7 +2,7 @@ CREATE TABLE match_message (
   message_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   round smallint NOT NULL,
   rank integer NOT NULL,
-  student_id text NOT NULL REFERENCES student(student_id) ON DELETE CASCADE,
+  registration_id text NOT NULL REFERENCES registration(registration_id) ON DELETE CASCADE,
   role text NOT NULL CHECK (role IN ('male', 'female')),
   receiver_phone text NOT NULL,
   sender_phone text NOT NULL,
@@ -24,5 +24,5 @@ CREATE TABLE match_message (
 );
 
 CREATE INDEX idx_match_message_result ON match_message (round, rank);
-CREATE INDEX idx_match_message_student ON match_message (student_id);
-CREATE INDEX idx_match_message_success ON match_message (round, student_id, success);
+CREATE INDEX idx_match_message_registration ON match_message (registration_id);
+CREATE INDEX idx_match_message_success ON match_message (round, registration_id, success);
