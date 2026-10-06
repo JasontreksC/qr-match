@@ -72,11 +72,27 @@ def _fmt_score(value) -> str:
     return f"{float(value):.4f}"
 
 
+CRITERION_LABEL = {
+    "impression": "인상",
+    "appearance": "외모",
+    "personality": "성격",
+    "vibe_style": "분위기/스타일",
+    "interests": "취미/관심사",
+    "relationship_values": "연애관/가치관",
+    "lifestyle": "생활습관",
+}
+
+
 def _fmt_ex_item(item: dict, name: str = "") -> str:
-    kind = KIND_LABEL.get(item.get("match_kind"), item.get("match_kind") or "")
+    # 이전 방식(match_kind/want_evidence/have_evidence)과 새 방식(label/requested/possessed/source)을 모두 읽는다.
+    name = CRITERION_LABEL.get(name, name)
+    raw_kind = item.get("match_kind") or item.get("label")
+    kind = KIND_LABEL.get(raw_kind, raw_kind or "")
+    if item.get("source") == "MISSING":
+        kind = "미기재"
     reason = (item.get("reason") or "").replace("\n", " ").strip()
-    want_ev = (item.get("want_evidence") or "").replace("\n", " / ").strip()
-    have_ev = (item.get("have_evidence") or "").replace("\n", " / ").strip()
+    want_ev = (item.get("want_evidence") or item.get("requested") or "").replace("\n", " / ").strip()
+    have_ev = (item.get("have_evidence") or item.get("possessed") or "").replace("\n", " / ").strip()
     evidence = (item.get("evidence") or "").replace("\n", " / ").strip()
     parts = [f"{name}: {kind}"] if name else [kind]
     if reason:
@@ -98,6 +114,8 @@ def _fmt_ex_side(detail: dict | None, key: str) -> str:
     if not isinstance(side, dict):
         return ""
     lines = []
+    if side.get("defined") is False:
+        return "요구 항목 없음"
     score = side.get("score")
     if score is not None:
         lines.append(f"점수 {_fmt_score(score)}")

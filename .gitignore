@@ -5,3 +5,4 @@ __pycache__/
 /output.csv
 /매칭결과_*.csv
 /tempCodeRunnerFile.py
+.DS_Store
