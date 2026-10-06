@@ -1,4 +1,4 @@
-"""모든 registration의 ex_want / ex_have를 7개 기준으로 추출해 ex_trait을 채운다.
+"""모든 registration의 ex_want / ex_have를 8개 기준으로 추출해 ex_trait을 채운다.
 
   python extract_ex_traits.py [옵션]
 
@@ -26,6 +26,18 @@
   - ex_trait 테이블이 없으면 QRious/migrations/aurora/02_ex_trait.sql을 먼저 적용해야 합니다.
 """
 
+"""
+**8개 기준**
+- 인상(`impression`)
+- 외모(`appearance`)
+- 성격(`personality`)
+- 분위기/스타일(`vibe_style`)
+- 취미/관심사(`interests`)
+- 연애관/가치관(`relationship_values`)
+- 생활습관(`lifestyle`)
+- 배경(`background`)
+"""
+
 import argparse
 import sys
 from collections import Counter
@@ -45,6 +57,7 @@ from score_functions.ex_traits import (
 from score_functions.llm import get_client, resolve_model
 
 MIGRATION_HINT = "QRious/migrations/aurora/02_ex_trait.sql"
+COLUMN_MIGRATION_HINT = "QRious/migrations/aurora/04_ex_background.sql"
 
 SOURCE_SQL = """
 SELECT r.registration_id, r.round, 'want'::text AS side, ew.charm AS text
@@ -84,7 +97,7 @@ REASON_LABEL = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="ex_want/ex_have를 7개 기준으로 추출해 ex_trait을 채웁니다.")
+    parser = argparse.ArgumentParser(description="ex_want/ex_have를 8개 기준으로 추출해 ex_trait을 채웁니다.")
     parser.add_argument("--execute", action="store_true", help="실제로 추출해서 저장합니다. 없으면 점검만 합니다.")
     parser.add_argument("--round", type=int, choices=(1, 2), help="해당 차수만 대상으로 합니다.")
     parser.add_argument("--limit", type=int, help="앞에서부터 N건만 처리합니다.")
@@ -233,7 +246,7 @@ def main() -> int:
         if missing_columns:
             print(
                 f"\n오류: ex_trait에 컬럼이 빠져 있습니다: {', '.join(missing_columns)}\n"
-                f"{MIGRATION_HINT}을 적용해서 컬럼과 제약을 맞춰 주세요. (여러 번 실행해도 안전합니다)"
+                f"{COLUMN_MIGRATION_HINT}을 적용해서 컬럼과 제약을 맞춰 주세요. (여러 번 실행해도 안전합니다)"
             )
             return 1
         if not exists:

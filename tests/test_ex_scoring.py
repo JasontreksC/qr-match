@@ -133,6 +133,74 @@ class ExtractionTests(unittest.TestCase):
         self.assertTrue(all(value is None for value in outcome.traits.values()))
 
 
+class PromptCoverageTests(unittest.TestCase):
+    """실제 원문에서 놓쳤던 구절이 프롬프트·기준으로 다뤄지는지 지킨다. (LLM은 부르지 않는다.)"""
+
+    # 한정하는 부정 표현과 떨어져 있는 같은 기준 구절이 섞인 원문.
+    MIXED = (
+        "진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고 ㅎ\n"
+        "외적인 이상형은 송하영 느낌 ㅎ\n"
+        "상대가 좋다면 어떤 취미라도 즐깁니다.\n"
+        "독서빼고요. 근데 저는 너무 압도적으로 예쁜 사람은 상대하기 어려워요.. 부담감 생겨버림 ㅠ"
+    )
+
+    def test_background_is_an_extracted_and_compared_criterion(self):
+        self.assertEqual(traits_mod.CRITERIA[-1], "background")
+        self.assertIn("background", traits_mod.TraitExtraction.model_fields)
+        self.assertIn("background", ex_mod.ANCHORS)
+        self.assertIn("background", ex_mod.COMPARE_SYSTEM)
+        self.assertIn("background", traits_mod.EXTRACT_SYSTEM)
+
+    def test_missed_phrases_have_a_home_in_the_hints(self):
+        self.assertIn("맞춰주는", traits_mod.CRITERION_HINT["personality"])
+        self.assertIn("안아주는", traits_mod.CRITERION_HINT["relationship_values"])
+        self.assertIn("군필", traits_mod.CRITERION_HINT["background"])
+        # 규칙 4가 이 구절들을 어느 기준에 넣을지 직접 알려 준다.
+        self.assertIn('"잘 맞춰줘요"', traits_mod.EXTRACT_SYSTEM)
+        self.assertIn('"잘 안아줄 수 있는 사람"', traits_mod.EXTRACT_SYSTEM)
+
+    def test_qualifying_negation_is_extracted_together_with_the_positive(self):
+        found = traits_mod.find_violations(
+            traits(
+                personality="진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고",
+                appearance="송하영 느낌 | 너무 압도적으로 예쁜 사람은 상대하기 어려워요.. 부담감 생겨버림",
+                interests="상대가 좋다면 어떤 취미라도 즐깁니다.",
+            ),
+            self.MIXED,
+        )
+        self.assertEqual(found, [])
+        self.assertIn("정도·범위를 한정하는 말", traits_mod.EXTRACT_SYSTEM)
+
+    def test_independent_dislike_stays_excluded(self):
+        # "독서빼고요"는 다른 대상에 대한 독립된 기피 표현이라 넣지 않는다고 프롬프트가 알려 준다.
+        self.assertIn("독서는 빼고요", traits_mod.EXTRACT_SYSTEM)
+        self.assertIn("다른 대상에 대한 기피", traits_mod.EXTRACT_SYSTEM)
+
+    def test_prompt_examples_are_verbatim_excerpts_of_their_own_text(self):
+        """프롬프트에 실은 예시가 원문에 없는 글자를 가르치면 안 된다."""
+        want_text = (
+            "다정한 사람 좋아하고 그렇다고 너무 느끼한 사람은 말고요. 외모는 아이유 느낌이 좋은데 너무 압도적으로 예쁜 사람은 부담스러워요. "
+            "군필이면 좋겠고 잘 안아주는 사람이었으면 해요. 책 읽는 건 별로예요."
+        )
+        want = traits(
+            personality="다정한 사람 좋아하고 그렇다고 너무 느끼한 사람은 말고요",
+            appearance="외모는 아이유 느낌이 좋은데 너무 압도적으로 예쁜 사람은 부담스러워요",
+            background="군필이면 좋겠고",
+            relationship_values="잘 안아주는 사람이었으면 해요",
+        )
+        have_text = "군필이고 IT 회사 다녀요. 상대에게 잘 맞춰주는 편이에요."
+        have = traits(background="군필이고 IT 회사 다녀요", personality="상대에게 잘 맞춰주는 편이에요")
+        self.assertEqual(traits_mod.find_violations(want, want_text), [])
+        self.assertEqual(traits_mod.find_violations(have, have_text), [])
+        for text in (want_text, have_text, *[v for v in (*want.values(), *have.values()) if v]):
+            self.assertIn(text, traits_mod.EXTRACT_SYSTEM)
+
+    def test_compare_prompt_reads_qualifiers_and_facts(self):
+        self.assertIn("정도를 한정하는 말", ex_mod.COMPARE_SYSTEM)
+        self.assertIn("사실 정보(background)", ex_mod.COMPARE_SYSTEM)
+        self.assertIn("「군필」 / 가진 모습 「미필」 → 무관/충돌", ex_mod.COMPARE_SYSTEM)
+
+
 class TraitReadinessTests(unittest.TestCase):
     def row(self, text, ok=True, version=None):
         return traits_mod.TraitRow("r1", "want", ok, text, version or traits_mod.EXTRACT_PROMPT_VERSION, traits(interests="영화"))

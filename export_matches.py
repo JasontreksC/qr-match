@@ -80,6 +80,7 @@ CRITERION_LABEL = {
     "interests": "취미/관심사",
     "relationship_values": "연애관/가치관",
     "lifestyle": "생활습관",
+    "background": "배경",
 }
 
 
