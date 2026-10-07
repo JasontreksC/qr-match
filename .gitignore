@@ -6,3 +6,5 @@ __pycache__/
 /매칭결과_*.csv
 /tempCodeRunnerFile.py
 .DS_Store
+/test_match_output
+

@@ -2,6 +2,12 @@
 
   python extract_ex_traits.py [옵션]
 
+기준마다 LLM이 원문을 정리해 다시 쓴 구절(statement)과 그 근거가 된 원문 구절(evidence)을 만든다.
+  - statement → ex_trait의 기준 컬럼. 채점(비교)에는 이것만 쓴다.
+  - evidence  → ex_trait.raw_response. 사람이 원문과 대조해 확인하는 용도이며 채점에 쓰지 않는다.
+    evidence가 원문의 부분 문자열인지는 코드가 검증하고, 틀리면 이유를 알려 주고 다시 시도한다.
+  - "~는 싫어요" 같은 거절은 "~하지 않는"으로, "너무 ~는 말고요" 같은 한도는 "적당히 ~한"으로 바꿔 쓴다.
+
 옵션
   (없음)           점검만 합니다. 읽기 전용 연결로 추출 대상 수만 세고, LLM을 부르지도 쓰지도 않습니다.
   --execute        실제로 추출해서 ex_trait에 저장합니다. 여러 번 실행해도 안전합니다(UPSERT).
@@ -10,8 +16,10 @@
                      - source_text가 현재 원문과 다름
                      - extraction_ok가 false
                      - prompt_version이 현재와 다름
+  --show N         저장된 추출 결과를 학번(registration_id) 오름차순으로 N건만 출력합니다. (읽기 전용, LLM 호출 없음)
+                   원문 · 재작성한 구절(채점에 쓰이는 값) · 원문 근거(사람이 확인하는 값)를 나란히 보여 줍니다.
   --round N        해당 차수(1 또는 2)만 대상으로 합니다. 기본은 모든 차수.
-  --limit N        추출 대상이 많아도 앞에서부터 N건만 처리합니다. (시험 실행용)
+  --limit N        추출 대상이 많아도 학번 오름차순으로 앞에서부터 N건만 처리합니다. (시험 실행용)
   --concurrency N  동시에 부르는 LLM 호출 수. 기본 4.
   --force          최신인 행도 모두 다시 추출합니다.
 
@@ -30,10 +38,10 @@
 **8개 기준**
 - 인상(`impression`)
 - 외모(`appearance`)
-- 성격(`personality`)
+- 성격/가치관(`personality`)
 - 분위기/스타일(`vibe_style`)
 - 취미/관심사(`interests`)
-- 연애관/가치관(`relationship_values`)
+- 연애관(`relationship_values`)
 - 생활습관(`lifestyle`)
 - 배경(`background`)
 """
@@ -100,7 +108,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ex_want/ex_have를 8개 기준으로 추출해 ex_trait을 채웁니다.")
     parser.add_argument("--execute", action="store_true", help="실제로 추출해서 저장합니다. 없으면 점검만 합니다.")
     parser.add_argument("--round", type=int, choices=(1, 2), help="해당 차수만 대상으로 합니다.")
-    parser.add_argument("--limit", type=int, help="앞에서부터 N건만 처리합니다.")
+    parser.add_argument("--limit", type=int, help="학번(registration_id) 오름차순으로 앞에서부터 N건만 처리합니다.")
+    parser.add_argument(
+        "--show",
+        type=int,
+        metavar="N",
+        help="저장된 추출 결과를 학번 오름차순으로 N건만 출력합니다. 원문·재작성 구절·원문 근거를 나란히 보여 줍니다. (읽기 전용)",
+    )
     parser.add_argument("--concurrency", type=int, default=4, help="동시 LLM 호출 수 (기본 4).")
     parser.add_argument("--force", action="store_true", help="최신인 행도 모두 다시 추출합니다.")
     args = parser.parse_args()
@@ -108,6 +122,11 @@ def parse_args() -> argparse.Namespace:
         parser.error("--limit은 1 이상이어야 합니다.")
     if args.concurrency < 1:
         parser.error("--concurrency는 1 이상이어야 합니다.")
+    if args.show is not None:
+        if args.show < 1:
+            parser.error("--show는 1 이상이어야 합니다.")
+        if args.execute or args.force or args.limit is not None:
+            parser.error("--show는 결과만 읽어서 보여 주는 옵션이라 --execute, --force, --limit과 함께 쓸 수 없습니다.")
     return args
 
 
@@ -142,7 +161,7 @@ def fetch_candidates(conn, round_no: int | None, with_traits: bool) -> list[dict
         {join}
         WHERE s.text IS NOT NULL AND btrim(s.text) <> ''
           AND (%(round)s::smallint IS NULL OR s.round = %(round)s::smallint)
-        ORDER BY s.round, s.registration_id, s.side
+        ORDER BY s.registration_id, s.side DESC
     """
     with conn.cursor() as cur:
         cur.execute(sql, {"round": round_no})
@@ -202,6 +221,57 @@ def print_distribution(conn) -> None:
         print("  " + " | ".join(str(value) for value in row))
 
 
+def _evidence_of(raw, key: str) -> list[str] | None:
+    """raw_response에서 기준의 원문 근거를 꺼낸다. 이전 형식(근거 없음)이면 None."""
+    value = ((raw or {}).get("response") or {}).get(key)
+    if isinstance(value, dict):
+        return [piece for piece in (value.get("evidence") or []) if piece]
+    return None
+
+
+def show_results(conn, count: int, round_no: int | None) -> None:
+    """저장된 추출 결과를 학번 오름차순으로 count건 출력한다. 사람이 원문과 대조해 보는 용도다."""
+    cols = ", ".join(f"t.{key}" for key in CRITERIA)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT t.registration_id, t.side, t.extraction_ok, t.source_text, t.error_message, t.raw_response,
+                   t.prompt_version, {cols}
+            FROM ex_trait t
+            JOIN registration r ON r.registration_id = t.registration_id
+            WHERE (%(round)s::smallint IS NULL OR r.round = %(round)s::smallint)
+            ORDER BY t.registration_id, t.side DESC
+            LIMIT %(count)s
+            """,
+            {"round": round_no, "count": count},
+        )
+        rows = cur.fetchall()
+    if not rows:
+        print("\n저장된 추출 결과가 없습니다.")
+        return
+    print(f"\n== 저장된 추출 결과 {len(rows)}건 (학번 오름차순) ==")
+    print("채점에는 '재작성'만 쓰입니다. '근거'는 사람이 원문과 대조하는 용도입니다.")
+    for number, row in enumerate(rows, start=1):
+        registration_id, side, ok, source_text, error, raw, version = row[:7]
+        values = dict(zip(CRITERIA, row[7:]))
+        stale = "" if version == EXTRACT_PROMPT_VERSION else f"  ※ 이전 프롬프트({version})로 추출됨 — 다시 추출하면 갱신됩니다"
+        print(f"\n[{number}/{len(rows)}] {registration_id} {side}  {'성공' if ok else '실패'}{stale}")
+        print("  원문: " + source_text.replace("\n", "\n        "))
+        if not ok:
+            print(f"  오류: {(error or '')[:300]}")
+            continue
+        filled = [key for key in CRITERIA if values[key]]
+        if not filled:
+            print("  (추출된 기준 없음)")
+        for key in filled:
+            print(f"  - {CRITERION_KO[key]}({key}) 재작성: {values[key]}")
+            evidence = _evidence_of(raw, key)
+            if evidence is None:
+                print("      근거: (이전 형식이라 저장돼 있지 않음)")
+            else:
+                print("      근거: " + " | ".join(f'"{piece}"' for piece in evidence))
+
+
 def save(conn, target: dict, outcome, model: str) -> None:
     traits = outcome.traits
     with conn.cursor() as cur:
@@ -223,9 +293,44 @@ def save(conn, target: dict, outcome, model: str) -> None:
     conn.commit()
 
 
+def extract_and_save(conn, targets: list[dict], model: str, concurrency: int) -> tuple[int, int, list[tuple[dict, str]]]:
+    """targets를 병렬로 추출해 ex_trait에 한 건씩 저장한다. (처리 수, 건너뛴 수, 실패 목록)을 돌려준다.
+
+    쓰기는 ex_trait 한 테이블뿐이다. KeyboardInterrupt는 그대로 올려 보낸다(이미 저장된 행은 남는다).
+    """
+    failed: list[tuple[dict, str]] = []
+    skipped = 0
+    done = 0
+    pool = ThreadPoolExecutor(max_workers=concurrency)
+    try:
+        futures = {pool.submit(extract_traits, t["side"], t["text"], model): t for t in targets}
+        for future in as_completed(futures):
+            target = futures[future]
+            done += 1
+            outcome = future.result()
+            try:
+                save(conn, target, outcome, model)
+            except pg_errors.ForeignKeyViolation:
+                conn.rollback()
+                skipped += 1
+                print(f"[{done}/{len(targets)}] {target['registration_id']} {target['side']}: 접수가 사라져 건너뜀")
+                continue
+            state = "성공" if outcome.ok else "실패"
+            filled = sum(1 for key in CRITERIA if outcome.traits.get(key))
+            print(
+                f"[{done}/{len(targets)}] {target['registration_id']} {target['side']}: "
+                f"{state} (시도 {outcome.attempts}회, 기준 {filled}개)"
+            )
+            if not outcome.ok:
+                failed.append((target, outcome.error or ""))
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return done, skipped, failed
+
+
 def main() -> int:
     args = parse_args()
-    mode = "실행" if args.execute else "점검만 (쓰기 없음)"
+    mode = "실행" if args.execute else ("결과 확인 (읽기 전용)" if args.show else "점검만 (쓰기 없음)")
     print(f"== ex_trait 추출 [{mode}] ==")
     print(f"대상 DB: Aurora {db.aurora_host()}")
     print(f"추출 프롬프트 버전: {EXTRACT_PROMPT_VERSION}")
@@ -234,7 +339,7 @@ def main() -> int:
         model = resolve_model()
         get_client()  # OPENAI_API_KEY 확인
         print(f"모델: {model}")
-    else:
+    elif not args.show:
         try:
             print(f"모델: {resolve_model()}")
         except RuntimeError as err:
@@ -254,6 +359,13 @@ def main() -> int:
             if args.execute:
                 print(f"\n오류: 먼저 {MIGRATION_HINT}을 Aurora에 적용해 주세요.")
                 return 1
+
+        if args.show:
+            if not exists:
+                print("\nex_trait 테이블이 아직 없어 보여 줄 결과가 없습니다.")
+                return 1
+            show_results(conn, args.show, args.round)
+            return 0
 
         candidates = fetch_candidates(conn, args.round, with_traits=exists)
         conn.commit()
@@ -290,37 +402,11 @@ def main() -> int:
             print_distribution(conn)
             return 0
 
-        failed: list[tuple[dict, str]] = []
-        skipped = 0
-        done = 0
-        pool = ThreadPoolExecutor(max_workers=args.concurrency)
         try:
-            futures = {pool.submit(extract_traits, t["side"], t["text"], model): t for t in targets}
-            for future in as_completed(futures):
-                target = futures[future]
-                done += 1
-                outcome = future.result()
-                try:
-                    save(conn, target, outcome, model)
-                except pg_errors.ForeignKeyViolation:
-                    conn.rollback()
-                    skipped += 1
-                    print(f"[{done}/{len(targets)}] {target['registration_id']} {target['side']}: 접수가 사라져 건너뜀")
-                    continue
-                state = "성공" if outcome.ok else "실패"
-                filled = sum(1 for key in CRITERIA if outcome.traits.get(key))
-                print(
-                    f"[{done}/{len(targets)}] {target['registration_id']} {target['side']}: "
-                    f"{state} (시도 {outcome.attempts}회, 기준 {filled}개)"
-                )
-                if not outcome.ok:
-                    failed.append((target, outcome.error or ""))
+            done, skipped, failed = extract_and_save(conn, targets, model, args.concurrency)
         except KeyboardInterrupt:
             print("\n중단합니다. 이미 저장된 행은 그대로이고, 다시 실행하면 이어서 합니다.")
-            pool.shutdown(wait=False, cancel_futures=True)
             return 130
-        finally:
-            pool.shutdown(wait=False, cancel_futures=True)
 
         print(f"\n완료: 성공 {done - skipped - len(failed)}건, 실패 {len(failed)}건, 건너뜀 {skipped}건")
         for target, error in failed:

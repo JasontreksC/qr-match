@@ -75,10 +75,10 @@ def _fmt_score(value) -> str:
 CRITERION_LABEL = {
     "impression": "인상",
     "appearance": "외모",
-    "personality": "성격",
+    "personality": "성격/가치관",
     "vibe_style": "분위기/스타일",
     "interests": "취미/관심사",
-    "relationship_values": "연애관/가치관",
+    "relationship_values": "연애관",
     "lifestyle": "생활습관",
     "background": "배경",
 }

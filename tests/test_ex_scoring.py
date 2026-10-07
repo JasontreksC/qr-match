@@ -53,26 +53,81 @@ def scorer_with(script: dict[str, list[str]], store=None):
     return ItemScorer(MemoryItemStore() if store is None else store, MODEL, judge=judge), judge
 
 
+def val(statement, *evidence):
+    """LLM이 돌려주는 기준 하나: 재작성한 구절(statement)과 원문 근거(evidence)."""
+    return {"statement": statement, "evidence": list(evidence)}
+
+
 class VerbatimValidationTests(unittest.TestCase):
+    """evidence는 원문 그대로여야 하고, statement는 길이와 거절 표현만 본다."""
+
     SOURCE = "잘 웃고, 배려심 있는 사람이면 좋겠어요! 담배 안 피는 사람이 좋아요. 술 마시는 사람은 싫어요."
 
-    def test_excerpt_ignores_spacing_and_punctuation(self):
-        found = traits_mod.find_violations(traits(personality="잘 웃고 배려심 있는 사람", lifestyle="담배 안 피는 사람이 좋아요"), self.SOURCE)
+    def test_evidence_ignores_spacing_and_punctuation(self):
+        found = traits_mod.find_violations(
+            {
+                "personality": val("잘 웃고 배려심 있는 사람", "잘 웃고 배려심 있는 사람이면 좋겠어요"),
+                "lifestyle": val("담배를 피우지 않는 사람", "담배 안 피는 사람이 좋아요"),
+            },
+            self.SOURCE,
+        )
         self.assertEqual(found, [])
 
-    def test_paraphrase_is_a_violation(self):
-        found = traits_mod.find_violations(traits(personality="다정하고 친절한 사람"), self.SOURCE)
+    def test_statement_may_be_rewritten_freely(self):
+        # statement는 재작성이므로 원문에 없는 글자여도 된다. 근거(evidence)만 원문이어야 한다.
+        found = traits_mod.find_violations({"personality": val("다정하고 친절한 사람", "배려심 있는 사람")}, self.SOURCE)
+        self.assertEqual(found, [])
+
+    def test_evidence_not_in_source_is_a_violation(self):
+        found = traits_mod.find_violations({"personality": val("친절한 사람", "다정하고 친절한 사람")}, self.SOURCE)
         self.assertEqual(len(found), 1)
         self.assertIn("personality", found[0])
+        self.assertIn("evidence", found[0])
 
-    def test_joined_excerpts_are_checked_one_by_one(self):
-        ok = traits_mod.find_violations(traits(lifestyle="담배 안 피는 사람이 좋아요 | 배려심 있는 사람"), self.SOURCE)
+    def test_each_evidence_piece_is_checked_one_by_one(self):
+        ok = traits_mod.find_violations(
+            {"lifestyle": val("담배를 피우지 않는 사람", "담배 안 피는 사람이 좋아요", "배려심 있는 사람")}, self.SOURCE
+        )
         self.assertEqual(ok, [])
-        bad = traits_mod.find_violations(traits(lifestyle="담배 안 피는 사람이 좋아요 | 운동하는 사람"), self.SOURCE)
+        bad = traits_mod.find_violations(
+            {"lifestyle": val("담배를 피우지 않는 사람", "담배 안 피는 사람이 좋아요", "운동하는 사람")}, self.SOURCE
+        )
         self.assertEqual(len(bad), 1)
 
-    def test_value_without_letters_is_a_violation(self):
-        self.assertEqual(len(traits_mod.find_violations(traits(interests="🍺"), self.SOURCE)), 1)
+    def test_empty_evidence_is_a_violation(self):
+        found = traits_mod.find_violations({"interests": val("영화")}, self.SOURCE)
+        self.assertEqual(len(found), 1)
+        self.assertIn("evidence가 비어", found[0])
+
+    def test_evidence_without_letters_is_a_violation(self):
+        self.assertEqual(len(traits_mod.find_violations({"interests": val("맥주", "🍺")}, self.SOURCE)), 1)
+
+    def test_blank_statement_is_a_violation(self):
+        found = traits_mod.find_violations({"interests": val("  ", "담배 안 피는 사람이 좋아요")}, self.SOURCE)
+        self.assertEqual(len(found), 1)
+        self.assertIn("statement가 비어", found[0])
+
+    def test_statement_that_still_contains_a_rejection_is_a_violation(self):
+        for statement in ("술 마시는 사람은 싫어요", "너무 진지한 사람 말고", "과하게 예쁜 사람은 부담스러운"):
+            with self.subTest(statement=statement):
+                found = traits_mod.find_violations({"lifestyle": val(statement, "술 마시는 사람은 싫어요")}, self.SOURCE)
+                self.assertEqual(len(found), 1)
+                self.assertIn("거절 표현", found[0])
+
+    def test_rewritten_rejection_passes(self):
+        for statement in ("술을 마시지 않는 사람", "적당히 진지한 사람", "과하게 예쁘지 않은 외모"):
+            with self.subTest(statement=statement):
+                found = traits_mod.find_violations({"lifestyle": val(statement, "술 마시는 사람은 싫어요")}, self.SOURCE)
+                self.assertEqual(found, [])
+
+    def test_overlong_statement_is_a_violation(self):
+        found = traits_mod.find_violations(
+            {"lifestyle": val("가" * (traits_mod.MAX_STATEMENT_CHARS + 1), "담배 안 피는 사람이 좋아요")}, self.SOURCE
+        )
+        self.assertEqual(len(found), 1)
+
+    def test_null_criteria_are_not_checked(self):
+        self.assertEqual(traits_mod.find_violations({key: None for key in traits_mod.CRITERIA}, self.SOURCE), [])
 
     def test_blank_string_becomes_none(self):
         self.assertIsNone(traits_mod.clean_value("   "))
@@ -81,6 +136,11 @@ class VerbatimValidationTests(unittest.TestCase):
 
 class ExtractionTests(unittest.TestCase):
     TEXT = "강아지상이라는 말 자주 들어요. 운동 좋아하고 아침형 인간이에요."
+    GOOD = {
+        "impression": val("강아지상", "강아지상이라는 말 자주 들어요"),
+        "lifestyle": val("운동을 좋아하는 아침형 인간", "운동 좋아하고 아침형 인간이에요"),
+    }
+    BAD = {"impression": val("순한 강아지 같은 인상", "순한 강아지 같은 인상")}  # evidence가 원문에 없다
 
     def fake_parse(self, responses):
         queue = list(responses)
@@ -97,31 +157,49 @@ class ExtractionTests(unittest.TestCase):
         return parse
 
     def test_valid_response_passes_on_first_attempt(self):
-        parse = self.fake_parse([{"impression": "강아지상", "lifestyle": "운동 좋아하고 아침형 인간"}])
-        outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=parse)
+        outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=self.fake_parse([self.GOOD]))
         self.assertTrue(outcome.ok)
         self.assertEqual(outcome.attempts, 1)
-        self.assertEqual(outcome.traits["impression"], "강아지상")
         self.assertIsNone(outcome.traits["personality"])
 
+    def test_only_the_rewritten_statement_becomes_the_trait(self):
+        """채점에 쓰이는 값(traits)은 statement이고, 원문 근거는 따로 담긴다."""
+        outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=self.fake_parse([self.GOOD]))
+        self.assertEqual(outcome.traits["lifestyle"], "운동을 좋아하는 아침형 인간")
+        self.assertEqual(outcome.evidence["lifestyle"], ["운동 좋아하고 아침형 인간이에요"])
+        self.assertNotIn("운동 좋아하고 아침형 인간이에요", outcome.traits.values())
+        self.assertNotIn("personality", outcome.evidence)
+        # 근거는 사람이 보도록 raw_response에도 남는다.
+        self.assertEqual(outcome.raw["response"]["lifestyle"]["evidence"], ["운동 좋아하고 아침형 인간이에요"])
+
     def test_retry_feeds_back_the_violation_and_then_succeeds(self):
-        parse = self.fake_parse([{"impression": "순한 강아지 같은 인상"}, {"impression": "강아지상"}])
+        parse = self.fake_parse([self.BAD, self.GOOD])
         outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=parse)
         self.assertTrue(outcome.ok)
         self.assertEqual(outcome.attempts, 2)
-        self.assertIn("원문에 없는 표현", parse.seen[1])
+        self.assertIn("evidence가 원문에 없는 표현", parse.seen[1])
         self.assertNotIn("이전 시도의 문제", parse.seen[0])
 
+    def test_leftover_rejection_in_statement_is_retried(self):
+        text = "술 마시는 사람은 싫어요."
+        leftover = {"lifestyle": val("술 마시는 사람은 싫어요", "술 마시는 사람은 싫어요")}
+        fixed = {"lifestyle": val("술을 마시지 않는 사람", "술 마시는 사람은 싫어요")}
+        parse = self.fake_parse([leftover, fixed])
+        outcome = traits_mod.extract_traits("want", text, MODEL, parse=parse)
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.traits["lifestyle"], "술을 마시지 않는 사람")
+        self.assertIn("거절 표현", parse.seen[1])
+
     def test_three_failures_mark_extraction_failed_with_all_traits_null(self):
-        bad = {"impression": "순한 강아지 같은 인상"}
-        outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=self.fake_parse([bad, bad, bad]))
+        outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=self.fake_parse([self.BAD, self.BAD, self.BAD]))
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.attempts, 3)
         self.assertTrue(outcome.error)
         self.assertTrue(all(value is None for value in outcome.traits.values()))
+        self.assertEqual(outcome.evidence, {})
 
     def test_api_error_counts_as_an_attempt_and_can_recover(self):
-        parse = self.fake_parse([RuntimeError("boom"), {"impression": "강아지상"}])
+        parse = self.fake_parse([RuntimeError("boom"), self.GOOD])
         outcome = traits_mod.extract_traits("have", self.TEXT, MODEL, parse=parse)
         self.assertTrue(outcome.ok)
         self.assertEqual(outcome.attempts, 2)
@@ -136,7 +214,7 @@ class ExtractionTests(unittest.TestCase):
 class PromptCoverageTests(unittest.TestCase):
     """실제 원문에서 놓쳤던 구절이 프롬프트·기준으로 다뤄지는지 지킨다. (LLM은 부르지 않는다.)"""
 
-    # 한정하는 부정 표현과 떨어져 있는 같은 기준 구절이 섞인 원문.
+    # 긍정 요구와 부정 표현이 한 문장에 섞인 원문.
     MIXED = (
         "진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고 ㅎ\n"
         "외적인 이상형은 송하영 느낌 ㅎ\n"
@@ -155,48 +233,142 @@ class PromptCoverageTests(unittest.TestCase):
         self.assertIn("맞춰주는", traits_mod.CRITERION_HINT["personality"])
         self.assertIn("안아주는", traits_mod.CRITERION_HINT["relationship_values"])
         self.assertIn("군필", traits_mod.CRITERION_HINT["background"])
-        # 규칙 4가 이 구절들을 어느 기준에 넣을지 직접 알려 준다.
+        # 규칙 6이 이 구절들을 어느 기준에 넣을지 직접 알려 준다.
         self.assertIn('"잘 맞춰줘요"', traits_mod.EXTRACT_SYSTEM)
         self.assertIn('"잘 안아줄 수 있는 사람"', traits_mod.EXTRACT_SYSTEM)
 
-    def test_qualifying_negation_is_extracted_together_with_the_positive(self):
-        found = traits_mod.find_violations(
-            traits(
-                personality="진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고",
-                appearance="송하영 느낌 | 너무 압도적으로 예쁜 사람은 상대하기 어려워요.. 부담감 생겨버림",
-                interests="상대가 좋다면 어떤 취미라도 즐깁니다.",
+    def test_values_go_to_personality_and_relationship_values_is_only_about_dating(self):
+        hint = traits_mod.CRITERION_HINT
+        self.assertEqual(traits_mod.CRITERION_KO["personality"], "성격/가치관")
+        self.assertEqual(traits_mod.CRITERION_KO["relationship_values"], "연애관")
+        self.assertIn("가치관", hint["personality"])
+        self.assertNotIn("가치관", hint["relationship_values"])
+        self.assertIn("연애에 관한 것만", hint["relationship_values"])
+        prompt = traits_mod.EXTRACT_SYSTEM
+        self.assertIn("가치관(인생관·가족관 등)은 personality에 넣는다", prompt)
+        self.assertIn("relationship_values에는 연락 빈도·애정표현·스킨십 같은 연애관만 넣는다", prompt)
+        # 결혼관은 어느 기준의 설명·예시에도 없고, 넣지 말라고만 한 번 적혀 있다.
+        for key, text in hint.items():
+            self.assertNotIn("결혼", text, key)
+        self.assertIn("결혼관(결혼에 대한 생각·결혼 계획)은 어느 기준에도 넣지 않는다", prompt)
+        mentions = [line for line in prompt.splitlines() if "결혼" in line]
+        self.assertEqual(len(mentions), 1, mentions)  # 제외 규칙 한 줄 외에는 어디에도 없다
+        self.assertEqual(ex_mod.COMPARE_SYSTEM.count("결혼"), 0)
+        # 비교 프롬프트의 기준 설명도 같은 정의를 쓴다.
+        self.assertIn("### personality (성격/가치관)", ex_mod.COMPARE_SYSTEM)
+        self.assertIn("### relationship_values (연애관)", ex_mod.COMPARE_SYSTEM)
+
+    def test_rejections_are_rewritten_not_dropped_or_copied(self):
+        prompt = traits_mod.EXTRACT_SYSTEM
+        # 완전한 거절은 "~하지 않는", 한도는 정도 표현, 범위에서 빼는 말은 "~를 제외한"으로 바꿔 쓰라고 알려 준다.
+        self.assertIn('"OOO한 사람은 싫어요/별로예요" → "OOO하지 않는 사람"', prompt)
+        self.assertIn('"진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고" → "적당히 진지한 사람"', prompt)
+        self.assertIn('"독서는 빼고요" → 앞 구절의 의미 뒤에 "(독서 제외)"를 붙여 쓴다', prompt)
+        self.assertIn("거절 표현을 남기지 않는다", prompt)
+        # 요구를 말하는 구절은 '안'이 들어 있어도 그대로 쓴다.
+        self.assertIn('"담배 안 피는 사람이 좋아요" → "담배를 피우지 않는 사람"', prompt)
+
+    def test_rewritten_form_of_the_real_mixed_text_passes_validation(self):
+        """실제 원문(MIXED)에서 재작성 + 근거 인용을 한 결과가 검증을 통과한다."""
+        rewritten = {
+            "personality": val("적당히 진지한 사람", "진지한 사람 좋아하고 그렇다고 너무 진지한 사람 말고"),
+            "appearance": val(
+                "송하영 느낌이되 과하게 예쁘지 않은 사람",
+                "외적인 이상형은 송하영 느낌",
+                "너무 압도적으로 예쁜 사람은 상대하기 어려워요",
             ),
-            self.MIXED,
-        )
-        self.assertEqual(found, [])
-        self.assertIn("정도·범위를 한정하는 말", traits_mod.EXTRACT_SYSTEM)
+            "interests": val("상대의 취미는 가리지 않음(독서 제외)", "상대가 좋다면 어떤 취미라도 즐깁니다", "독서빼고요"),
+        }
+        self.assertEqual(traits_mod.find_violations(rewritten, self.MIXED), [])
+        # 같은 결과에서 거절 표현을 그대로 남기면 걸린다.
+        copied = {"personality": val("너무 진지한 사람 말고", "그렇다고 너무 진지한 사람 말고")}
+        self.assertEqual(len(traits_mod.find_violations(copied, self.MIXED)), 1)
 
-    def test_independent_dislike_stays_excluded(self):
-        # "독서빼고요"는 다른 대상에 대한 독립된 기피 표현이라 넣지 않는다고 프롬프트가 알려 준다.
-        self.assertIn("독서는 빼고요", traits_mod.EXTRACT_SYSTEM)
-        self.assertIn("다른 대상에 대한 기피", traits_mod.EXTRACT_SYSTEM)
+    def test_writers_own_attitude_is_not_turned_into_a_condition_on_the_partner(self):
+        """실제로 왜곡됐던 사례: 본인이 어떤 취미든 즐긴다는 말이 '어떤 취미든 즐기는 사람'이라는 상대 조건으로 바뀌었다."""
+        prompt = traits_mod.EXTRACT_SYSTEM
+        self.assertIn("구절의 주체를 바꾸지 않는다", prompt)
+        self.assertIn("글쓴이 본인의 너그러움·허용", prompt)
+        self.assertIn('"상대의 ~는 가리지 않음"이라고 쓴다', prompt)
+        # 잘못된 재작성을 틀린 예로 보여 준다.
+        self.assertIn("× \"독서를 제외한 어떤 취미라도 함께 즐기는 사람\"", prompt)
+        # 올바른 재작성 예.
+        self.assertIn('interests: "상대의 취미는 가리지 않음(독서 제외)"', prompt)
+        # 상대에 대한 요구를 말하는 "저는 ~ 사람이 좋아요/어려워요"는 계속 조건으로 쓴다.
+        self.assertIn('"저는 ~한 사람이 좋아요", "저는 ~한 사람은 어려워요"도 상대의 모습을 말하므로 조건이다', prompt)
+        # 본인 소개는 want에, 상대에 대한 바람은 have에 넣지 않는다.
+        self.assertIn("본인을 소개하는 말", prompt)
+        self.assertIn("have 글에서 상대에게 바라는 말은 본인이 가진 모습이 아니므로 넣지 않는다", prompt)
 
-    def test_prompt_examples_are_verbatim_excerpts_of_their_own_text(self):
-        """프롬프트에 실은 예시가 원문에 없는 글자를 가르치면 안 된다."""
-        want_text = (
-            "다정한 사람 좋아하고 그렇다고 너무 느끼한 사람은 말고요. 외모는 아이유 느낌이 좋은데 너무 압도적으로 예쁜 사람은 부담스러워요. "
-            "군필이면 좋겠고 잘 안아주는 사람이었으면 해요. 책 읽는 건 별로예요."
-        )
-        want = traits(
-            personality="다정한 사람 좋아하고 그렇다고 너무 느끼한 사람은 말고요",
-            appearance="외모는 아이유 느낌이 좋은데 너무 압도적으로 예쁜 사람은 부담스러워요",
-            background="군필이면 좋겠고",
-            relationship_values="잘 안아주는 사람이었으면 해요",
-        )
-        have_text = "군필이고 IT 회사 다녀요. 상대에게 잘 맞춰주는 편이에요."
-        have = traits(background="군필이고 IT 회사 다녀요", personality="상대에게 잘 맞춰주는 편이에요")
-        self.assertEqual(traits_mod.find_violations(want, want_text), [])
-        self.assertEqual(traits_mod.find_violations(have, have_text), [])
-        for text in (want_text, have_text, *[v for v in (*want.values(), *have.values()) if v]):
-            self.assertIn(text, traits_mod.EXTRACT_SYSTEM)
+    def test_nonstandard_emphasis_is_carried_into_the_rewrite(self):
+        """실제로 사라졌던 사례: '성격이 진짜x100000 다정한 사람'이 강조 없이 '다정하며'로 재작성됐다."""
+        prompt = traits_mod.EXTRACT_SYSTEM
+        self.assertIn("강조는 지우지 않고 정도를 나타내는 말로 옮긴다", prompt)
+        for slang in ('"진짜"', '"완전"', '"개"', '"ㄹㅇ"', '"x100000"', '"다정다정"'):
+            self.assertIn(slang, prompt)
+        self.assertIn('"성격이 진짜x100000 다정한 사람" → "무엇보다 다정한 사람"', prompt)
+        self.assertIn('× "다정한 사람" — 강조가 사라진 오류다', prompt)
+        self.assertIn("같은 기준에 속한 특성은 빠뜨리지 않고 모두 담는다", prompt)
+        # 예시: 비표준 강조("진짜x9999", "개웃기면")를 정도 표현으로 옮기고, 같은 기준의 다른 특성도 남긴다.
+        example = next(item for item in traits_mod.EXAMPLES if "비표준 강조" in item[1])
+        statement, evidence = example[3]["personality"]
+        self.assertIn("진짜x9999", " ".join(evidence))
+        self.assertIn("무엇보다 다정", statement)
+        self.assertIn("매우 웃기", statement)
+        self.assertIn("낭만을 아는", statement)  # 강조 때문에 다른 특성이 빠지지 않는다
+        self.assertNotIn("x9999", statement)  # 이상한 표기는 정리되어 statement에 남지 않는다
 
-    def test_compare_prompt_reads_qualifiers_and_facts(self):
-        self.assertIn("정도를 한정하는 말", ex_mod.COMPARE_SYSTEM)
+    def test_compare_prompt_reads_emphasis_words(self):
+        system = ex_mod.COMPARE_SYSTEM
+        self.assertIn('강조어("무엇보다", "특히", "매우", "아주")', system)
+        self.assertIn("「무엇보다 다정한 사람」 / 가진 모습 「다정하고 배려심이 깊은 사람」 → 거의 일치", system)
+        self.assertIn("「무엇보다 다정한 사람」 / 가진 모습 「다정한 편」 → 부분 일치", system)
+
+    def test_compare_prompt_reads_no_condition_statements(self):
+        system = ex_mod.COMPARE_SYSTEM
+        self.assertIn("상대의 ~는 가리지 않음", system)
+        self.assertIn("「상대의 취미는 가리지 않음(독서 제외)」 / 가진 모습 「영화 감상, 전시회」 → 거의 일치", system)
+        self.assertIn("「상대의 취미는 가리지 않음(독서 제외)」 / 가진 모습 「독서, 글쓰기」 → 무관/충돌", system)
+
+    def test_unsure_statements_are_not_extracted(self):
+        prompt = traits_mod.EXTRACT_SYSTEM
+        self.assertIn("확신 없는 말은 넣지 않는다", prompt)
+        self.assertIn("evidence에도 statement에도 쓰지 않는다", prompt)
+        self.assertIn("굳이 적자면 직진남이에요", prompt)  # 망설이는 말이 붙어도 단정하면 넣는다
+        self.assertIn('"키가 작은 것도 매력 맞죠..?"는 확신 없는 질문이라 넣지 않는다', prompt)
+        # 확신 없는 말의 목록과, 허용하는 추측형 어미.
+        for phrase in ('"~맞죠?"', '"~잘 모르겠어요"', '"~일까요?"'):
+            self.assertIn(phrase, prompt)
+        self.assertIn('"~같아요", "~인 것 같아요"는 허용한다', prompt)
+        self.assertIn('"내향적인 것 같아요" → "내향적인 편"', prompt)
+        self.assertIn('"장점이 뭔지는 잘 모르겠어요"는 확신 없는 말이라 넣지 않는다', prompt)
+        # 한도는 "적당히 ~한"처럼 정도를 나타내는 말로 바꿔 쓰라고 한다. 스키마 설명도 같다.
+        self.assertIn('"적당히 ~한"처럼 정도를 나타내는 말로 바꿔 쓴다', prompt)
+        description = traits_mod.TraitValue.model_fields["statement"].description
+        self.assertIn("적당히 ~한", description)
+        self.assertIn("잘 모르겠어요", description)
+
+    def test_prompt_examples_are_valid_by_our_own_rules(self):
+        """프롬프트에 실은 예시가 규칙을 어기면 모델이 그걸 따라 한다. 예시 데이터를 같은 검증으로 확인한다."""
+        for side, title, text, items, _note in traits_mod.EXAMPLES:
+            with self.subTest(example=title or side):
+                response = {key: val(statement, *evidence) for key, (statement, evidence) in items.items()}
+                self.assertEqual(traits_mod.find_violations(response, text), [])
+                self.assertIn(text, traits_mod.EXTRACT_SYSTEM)
+                for statement, evidence in items.values():
+                    self.assertIn(f'statement "{statement}"', traits_mod.EXTRACT_SYSTEM)
+                    for piece in evidence:
+                        self.assertIn(f'"{piece}"', traits_mod.EXTRACT_SYSTEM)
+                    self.assertNotIn("맞죠", statement)
+
+    def test_examples_cover_the_phrases_that_were_missed(self):
+        examples = " ".join(f"{text} {items}" for _s, _t, text, items, _n in traits_mod.EXAMPLES)
+        for phrase in ("담배를 피우지 않", "과하게 느끼하지 않은", "과하게 예쁘지 않은", "군필", "잘 안아주는", "잘 맞춰주는"):
+            self.assertIn(phrase, examples)
+
+    def test_compare_prompt_reads_degree_words_and_facts(self):
+        self.assertIn("정도나 한도를 나타내는 말", ex_mod.COMPARE_SYSTEM)
+        self.assertIn("「적당히 진지한 사람」 / 가진 모습 「장난기 많고 가벼운」 → 무관/충돌", ex_mod.COMPARE_SYSTEM)
         self.assertIn("사실 정보(background)", ex_mod.COMPARE_SYSTEM)
         self.assertIn("「군필」 / 가진 모습 「미필」 → 무관/충돌", ex_mod.COMPARE_SYSTEM)
 
