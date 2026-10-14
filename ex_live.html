@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ex 평가 실시간</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <style>
+    :root {
+      --bg: #12110e;
+      --panel: #1c1a16;
+      --panel-2: #24211c;
+      --line: rgba(243, 232, 214, 0.1);
+      --ink: #f6f1e7;
+      --muted: #a3988a;
+      --faint: #6f675d;
+      --amber: #e6a23c;
+      --amber-dim: rgba(230, 162, 60, 0.16);
+      --good: #8fceab;
+      --bad: #e08b7a;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--ink); }
+    body {
+      font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font: inherit; color: inherit; }
+
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 22px 48px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-end;
+      margin-bottom: 22px;
+    }
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--amber);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+    }
+    h1 { margin: 0; font-size: 32px; font-weight: 650; letter-spacing: -0.03em; }
+    .sub { margin: 8px 0 0; color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 640px; }
+    .live {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--good);
+      box-shadow: 0 0 0 0 rgba(143, 206, 171, 0.7);
+      animation: pulse 1.8s infinite;
+    }
+    .live.err .dot { background: var(--bad); animation: none; }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(143, 206, 171, 0.55); }
+      70% { box-shadow: 0 0 0 8px rgba(143, 206, 171, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(143, 206, 171, 0); }
+    }
+
+    .banner {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(224, 139, 122, 0.12);
+      color: #f0c2b8;
+      font-size: 14px;
+    }
+    .banner.show { display: block; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px 13px;
+    }
+    .stat b {
+      display: block;
+      margin-top: 4px;
+      font-size: 22px;
+      font-weight: 640;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat span { color: var(--faint); font-size: 12px; }
+    .stat.flash b { color: var(--amber); }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 16px 12px;
+      margin-bottom: 14px;
+    }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    h2 { margin: 0; font-size: 15px; font-weight: 620; white-space: nowrap; }
+    .hint { margin: 0; color: var(--faint); font-size: 12px; line-height: 1.4; text-align: right; }
+
+    .curve-wrap { position: relative; }
+    canvas { width: 100%; height: 280px; display: block; cursor: crosshair; }
+    .tip {
+      position: absolute;
+      pointer-events: none;
+      display: none;
+      background: #2c2822;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      transform: translate(-50%, -120%);
+      white-space: nowrap;
+    }
+
+    .split { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; }
+    .split .panel { margin: 0 0 14px; }
+
+    .hist, .minutes {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: 168px;
+      padding-top: 8px;
+      overflow: hidden;
+    }
+    .bin, .minute { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+    .bar {
+      width: 100%;
+      border-radius: 5px 5px 2px 2px;
+      background: linear-gradient(180deg, #f0c27a, #c4842a);
+      min-height: 2px;
+    }
+    .minute .bar { background: linear-gradient(180deg, #efe6d6, #8d8376); }
+    .bin em, .minute em {
+      margin-top: 6px;
+      color: var(--faint);
+      font-style: normal;
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .count-label {
+      color: var(--muted);
+      font-size: 10px;
+      margin-bottom: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ticker { display: flex; gap: 8px; overflow: hidden; }
+    .chip {
+      flex: 1;
+      min-width: 0;
+      background: var(--panel-2);
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+    .chip b { display: block; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--amber); }
+    .chip p { margin: 3px 0 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    ol.ranks { list-style: none; margin: 0; padding: 0; }
+    .rank-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 72px;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 4px;
+      border-top: 1px solid var(--line);
+      cursor: pointer;
+    }
+    .rank-row:first-child { border-top: 0; }
+    .rank-no { color: var(--faint); font-variant-numeric: tabular-nums; font-size: 13px; }
+    .rank-main { position: relative; min-width: 0; }
+    .track {
+      position: absolute; inset: 2px 0;
+      background: var(--amber-dim);
+      border-radius: 8px;
+      transform-origin: left center;
+    }
+    .texts { position: relative; padding: 2px 10px; min-width: 0; }
+    .texts p { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+    .texts .have { color: var(--muted); margin-top: 2px; }
+    .tag { color: var(--faint); margin-right: 6px; font-size: 11px; }
+    .score-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 640; color: var(--amber); }
+    .meta { color: var(--faint); font-size: 11px; font-weight: 450; }
+    .detail { display: none; grid-column: 2 / span 2; padding: 2px 10px 6px; }
+    .rank-row.open .detail { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      background: var(--panel-2);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .pill strong { font-weight: 600; }
+    .pill[data-label="동일"] strong { color: #8fceab; }
+    .pill[data-label="거의 일치"] strong { color: #c5d98a; }
+    .pill[data-label="부분 일치"] strong { color: #e6c36a; }
+    .pill[data-label="약한 관련"] strong { color: #e0a15a; }
+    .pill[data-label="무관/충돌"] strong { color: #e08b7a; }
+    .pill[data-label="정보 없음"] strong { color: #a3988a; }
+    .resample { color: #e0a15a; margin-left: 6px; }
+
+    footer { color: var(--faint); font-size: 12px; margin-top: 8px; }
+
+    @media (max-width: 860px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .split, header { display: block; }
+      .live { margin-top: 12px; }
+      h1 { font-size: 26px; }
+      .ticker { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">READ ONLY · AURORA READER</p>
+        <h1>ex 평가 실시간</h1>
+        <p class="sub">나이 조건을 통과한 뒤 저장된 방향 평가입니다. 한 사람의 이상형 원문과 다른 사람의 매력 원문을 점수 높은 순으로 놓습니다. 점수 = 요구한 기준의 합 ÷ (기준 수 + k).</p>
+      </div>
+      <div class="live" id="live"><span class="dot"></span><span id="live-label">연결 중</span><span id="fetched-at"></span></div>
+    </header>
+
+    <div class="banner" id="banner"></div>
+
+    <section class="stats" id="stats"></section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>방금 저장된 평가</h2>
+        <p class="hint">가장 최근에 저장된 8건</p>
+      </div>
+      <div class="ticker" id="ticker"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>점수 순</h2>
+        <p class="hint">왼쪽이 1위입니다. 세로축은 0부터 1까지 고정입니다. 가로 점선은 평균입니다.</p>
+      </div>
+      <div class="curve-wrap">
+        <canvas id="curve"></canvas>
+        <div class="tip" id="tip"></div>
+      </div>
+    </section>
+
+    <div class="split">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>점수 분포</h2>
+          <p class="hint">0.1 간격. 요구가 없어 점수가 없는 평가는 빠집니다.</p>
+        </div>
+        <div class="hist" id="hist"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head">
+          <h2>최근 30분</h2>
+          <p class="hint">분당 새로 저장된 평가 수</p>
+        </div>
+        <div class="minutes" id="minutes"></div>
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>상위 30</h2>
+        <p class="hint">줄을 누르면 기준별 라벨이 열립니다.</p>
+      </div>
+      <ol class="ranks" id="ranks"></ol>
+    </section>
+
+    <footer id="foot"></footer>
+  </div>
+
+  <script>
+    const POLL_MS = 2000;
+    let last = null;
+    let plot = null;
+    const seen = {};
+
+    function keep(key, value, draw) {
+      const next = JSON.stringify(value);
+      if (seen[key] === next) return;
+      seen[key] = next;
+      draw();
+    }
+
+    const statsEl = document.getElementById("stats");
+    const tickerEl = document.getElementById("ticker");
+    const histEl = document.getElementById("hist");
+    const minutesEl = document.getElementById("minutes");
+    const ranksEl = document.getElementById("ranks");
+    const canvas = document.getElementById("curve");
+    const tip = document.getElementById("tip");
+    const live = document.getElementById("live");
+
+    function num(value, digits) {
+      if (value === null || value === undefined) return "–";
+      return digits === undefined
+        ? Number(value).toLocaleString("ko-KR")
+        : Number(value).toFixed(digits);
+    }
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function renderStats(data, flash) {
+      const cards = [
+        ["저장된 평가", num(data.count)],
+        ["점수가 있는 평가", num(data.defined)],
+        ["평균", num(data.mean, 3)],
+        ["중앙값", num(data.median, 3)],
+        ["가장 높은 점수", num(data.maximum, 3)],
+        ["최근 1분", num(data.per_minute)],
+      ];
+      statsEl.replaceChildren();
+      for (const [label, value] of cards) {
+        const card = el("div", "stat" + (flash && label === "저장된 평가" ? " flash" : ""));
+        card.append(el("span", "", label), el("b", "", value));
+        statsEl.append(card);
+      }
+    }
+
+    function renderTicker(items) {
+      tickerEl.replaceChildren();
+      if (!items.length) {
+        tickerEl.append(el("p", "hint", "저장된 평가가 아직 없습니다."));
+        return;
+      }
+      for (const item of items) {
+        const chip = el("div", "chip");
+        const score = item.score === null ? "요구 없음" : Number(item.score).toFixed(3);
+        chip.append(el("b", "", score + "  ·  " + item.at));
+        chip.append(el("p", "", item.want));
+        tickerEl.append(chip);
+      }
+    }
+
+    function barChart(host, items, labelOf, valueOf, className) {
+      host.replaceChildren();
+      const max = Math.max(1, ...items.map(valueOf));
+      items.forEach((item, index) => {
+      const value = valueOf(item);
+      const col = el("div", className);
+      if (value > 0 && className === "bin") col.append(el("span", "count-label", String(value)));
+        const bar = el("div", "bar");
+        bar.style.height = Math.max(2, Math.round((value / max) * 112)) + "px";
+        col.append(bar);
+        const show = className === "bin" || index % 10 === 0 || index === items.length - 1;
+        col.append(el("em", "", show ? labelOf(item) : ""));
+        host.append(col);
+      });
+    }
+
+    function renderRanks(items) {
+      const openKey = ranksEl.querySelector(".rank-row.open")?.dataset.key || "";
+      const max = items.length ? items[0].score || 1 : 1;
+      ranksEl.replaceChildren();
+      if (!items.length) {
+        ranksEl.append(el("p", "hint", "점수가 있는 평가가 쌓이면 여기에 순위가 나타납니다."));
+        return;
+      }
+      for (const item of items) {
+        const row = el("li", "rank-row");
+        row.dataset.key = String(item.rank) + "|" + item.want;
+        if (row.dataset.key === openKey) row.classList.add("open");
+        row.append(el("span", "rank-no", String(item.rank)));
+        const main = el("div", "rank-main");
+        const track = el("div", "track");
+        track.style.left = "0";
+        track.style.right = "auto";
+        track.style.width = ((item.score / max) * 100) + "%";
+        const texts = el("div", "texts");
+        const want = el("p", "want");
+        want.append(el("span", "tag", "이상형"), document.createTextNode(item.want));
+        const have = el("p", "have");
+        have.append(el("span", "tag", "매력"), document.createTextNode(item.have));
+        texts.append(want, have);
+        main.append(track, texts);
+        const score = el("div", "score-num");
+        score.append(document.createTextNode(Number(item.score).toFixed(3)));
+        const meta = el("div", "meta", "기준 " + item.n + " · 호출 " + item.calls);
+        if (item.resampled) meta.append(el("span", "resample", "재샘플"));
+        score.append(meta);
+        const detail = el("div", "detail");
+        for (const criterion of item.criteria) {
+          const pill = el("span", "pill");
+          pill.dataset.label = criterion.label;
+          pill.append(document.createTextNode(criterion.name + " "), el("strong", "", criterion.label));
+          detail.append(pill);
+        }
+        row.append(main, score, detail);
+        row.addEventListener("click", () => row.classList.toggle("open"));
+        ranksEl.append(row);
+      }
+    }
+
+    function drawCurve(scores, mean) {
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      canvas.width = Math.max(1, Math.floor(width * dpr));
+      canvas.height = Math.max(1, Math.floor(height * dpr));
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      const pad = { l: 36, r: 16, t: 16, b: 28 };
+      const iw = width - pad.l - pad.r;
+      const ih = height - pad.t - pad.b;
+      plot = { pad, iw, ih, scores };
+
+      ctx.font = "11px Pretendard, sans-serif";
+      ctx.fillStyle = "#6f675d";
+      ctx.strokeStyle = "rgba(243,232,214,0.08)";
+      ctx.lineWidth = 1;
+      for (const tick of [0, 0.25, 0.5, 0.75, 1]) {
+        const y = pad.t + (1 - tick) * ih;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y);
+        ctx.lineTo(pad.l + iw, y);
+        ctx.stroke();
+        ctx.fillText(tick.toFixed(2), 2, y + 4);
+      }
+      if (!scores.length) {
+        ctx.fillStyle = "#a3988a";
+        ctx.font = "14px Pretendard, sans-serif";
+        ctx.fillText("점수가 있는 평가가 쌓이면 곡선이 그려집니다.", pad.l, pad.t + ih / 2);
+        return;
+      }
+
+      const x = (i) => pad.l + (scores.length === 1 ? iw / 2 : (i / (scores.length - 1)) * iw);
+      const y = (s) => pad.t + (1 - Math.max(0, Math.min(1, s))) * ih;
+
+      if (mean !== null && mean !== undefined) {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(230,162,60,0.55)";
+        ctx.beginPath();
+        ctx.moveTo(pad.l, y(mean));
+        ctx.lineTo(pad.l + iw, y(mean));
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (scores.length === 1) {
+        ctx.beginPath();
+        ctx.arc(x(0), y(scores[0]), 4, 0, Math.PI * 2);
+        ctx.fillStyle = "#e6a23c";
+        ctx.fill();
+        ctx.fillStyle = "#6f675d";
+        ctx.font = "11px Pretendard, sans-serif";
+        ctx.fillText("1위", pad.l, height - 8);
+        return;
+      }
+
+      ctx.beginPath();
+      scores.forEach((score, i) => (i ? ctx.lineTo(x(i), y(score)) : ctx.moveTo(x(i), y(score))));
+      ctx.strokeStyle = "#e6a23c";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.lineTo(x(scores.length - 1), pad.t + ih);
+      ctx.lineTo(x(0), pad.t + ih);
+      ctx.closePath();
+      const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + ih);
+      grad.addColorStop(0, "rgba(230,162,60,0.35)");
+      grad.addColorStop(1, "rgba(230,162,60,0.02)");
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.fillStyle = "#6f675d";
+      ctx.font = "11px Pretendard, sans-serif";
+      ctx.fillText("1위", pad.l, height - 8);
+      const last = scores.length.toLocaleString("ko-KR") + "위";
+      ctx.fillText(last, pad.l + iw - ctx.measureText(last).width, height - 8);
+    }
+
+    function render(data) {
+      const grew = last && data.count > last.count;
+      last = data;
+      document.title = "(" + data.count.toLocaleString("ko-KR") + ") ex 평가 실시간";
+      live.classList.toggle("err", !data.ok);
+      document.getElementById("live-label").textContent = data.ok ? "실시간" : "다시 연결하는 중";
+      document.getElementById("fetched-at").textContent = data.fetched_at || "";
+      const banner = document.getElementById("banner");
+      banner.classList.toggle("show", Boolean(data.error));
+      banner.textContent = data.error || "";
+      renderStats(data, grew);
+      keep("curve", [data.curve, data.mean, canvas.clientWidth], () => drawCurve(data.curve || [], data.mean));
+      keep("ticker", data.recent, () => renderTicker(data.recent || []));
+      keep("hist", data.histogram, () => barChart(histEl, data.histogram || [], (bin) => bin.lo.toFixed(1), (bin) => bin.n, "bin"));
+      keep("minutes", data.minutes, () => barChart(minutesEl, data.minutes || [], (bin) => bin.t, (bin) => bin.n, "minute"));
+      keep("ranks", data.top, () => renderRanks(data.top || []));
+      document.getElementById("foot").textContent =
+        "호출 누적 " + num(data.calls) + "회 · 재샘플 " + num(data.resampled) +
+        "건 · 요구가 없어 점수가 없는 평가 " + num(data.undefined) + "건 · k = " + data.k +
+        " · 2초마다 리더를 다시 읽습니다." +
+        (data.reader ? " · " + data.reader + (data.replica ? " (복제본)" : "") : "");
+    }
+
+    canvas.addEventListener("mousemove", (event) => {
+      if (!plot || !plot.scores.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const ratio = plot.scores.length === 1 ? 0.5 : (x - plot.pad.l) / plot.iw;
+      const index = Math.max(0, Math.min(plot.scores.length - 1, Math.round(ratio * (plot.scores.length - 1))));
+      tip.style.display = "block";
+      tip.style.left = (plot.pad.l + (plot.scores.length === 1 ? plot.iw / 2 : (index / (plot.scores.length - 1)) * plot.iw)) + "px";
+      tip.style.top = (plot.pad.t + (1 - plot.scores[index]) * plot.ih) + "px";
+      tip.textContent = (index + 1).toLocaleString("ko-KR") + "위  " + plot.scores[index].toFixed(3);
+    });
+    canvas.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    window.addEventListener("resize", () => { if (last) drawCurve(last.curve || [], last.mean); });
+
+    async function poll() {
+      try {
+        const response = await fetch("/api/snapshot", { cache: "no-store" });
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        render(await response.json());
+      } catch (err) {
+        live.classList.add("err");
+        document.getElementById("live-label").textContent = "응답 없음";
+        const banner = document.getElementById("banner");
+        banner.classList.add("show");
+        banner.textContent = String(err);
+      }
+    }
+    poll();
+    setInterval(poll, POLL_MS);
+  </script>
+</body>
+</html>

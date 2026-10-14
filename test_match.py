@@ -1,21 +1,20 @@
-"""v2 ex 채점을 소규모(남 N명 × 여 N명)로 시험 실행해 점수가 합리적인지 사람이 검토하기 위한 스크립트.
+"""ex 원문 평가를 소규모(남 N명 × 여 N명)로 시험 실행해 점수가 합리적인지 사람이 검토하기 위한 스크립트.
 
 흐름
   1. 접수 참가자 중 남자 N명, 여자 N명을 registration_id 오름차순으로 앞에서부터 고른다. (기본 N=20)
-  2. 그 사람들의 ex_trait을 추출한다. (이미 최신이면 건너뜀)           → 쓰기: ex_trait 한 테이블만
-  3. N×N 쌍을 채점한다.                                           → 항목 점수는 메모리에만 둔다
-  4. 점수표 CSV를 만들고, 1위부터 탐욕적으로 쌍을 골라 매칭표 CSV를 만든다.
-  5. test_match_output/ 에 시작 시각을 붙여 저장한다.
+  2. N×N 쌍을 채점한다. 이상형 원문과 매력 원문을 그대로 평가한다.   → 평가 결과는 메모리에만 둔다
+  3. 점수표 CSV를 만들고, 1위부터 탐욕적으로 쌍을 골라 매칭표 CSV를 만든다.
+  4. test_match_output/ 에 시작 시각을 붙여 저장한다.
 
-DB 쓰기는 2단계의 ex_trait 저장뿐이다.
+DB에는 아무것도 쓰지 않는다. (읽기 전용 연결)
   - match_result는 읽지도 쓰지도 않는다. (start_fresh_job / commit_selected_matches를 부르지 않는다.)
-  - ex_item_score 캐시도 쓰지 않는다. 같은 입력이면 캐시가 같은 점수를 돌려주므로, 캐시를 쓰면 여러 번 돌려도
-    점수가 변하지 않아 회차별 변동을 볼 수 없다. 매 회차마다 LLM이 항목을 새로 채점한다.
+  - ex_pair_score 캐시도 쓰지 않는다. 같은 입력이면 캐시가 같은 점수를 돌려주므로, 캐시를 쓰면 여러 번 돌려도
+    점수가 변하지 않아 회차별 변동을 볼 수 없다. 매 회차마다 LLM이 새로 평가한다.
   - matching_state/ 도 건드리지 않는다.
 
 사용법
-  python test_match.py                 # 점검만: 대상자와 추출 필요 건수를 보여 준다. LLM 호출·쓰기 없음
-  python test_match.py --execute       # 실제 실행 (OpenAI 호출 + ex_trait 저장)
+  python test_match.py                 # 점검만: 대상자와 평가할 원문 쌍 수를 보여 준다. LLM 호출·쓰기 없음
+  python test_match.py --execute       # 실제 실행 (OpenAI 호출)
   python test_match.py --compare       # test_match_output/ 의 점수표들을 겹쳐 회차별 변동을 요약한다. (DB·LLM 없음)
 """
 
@@ -33,23 +32,17 @@ from datetime import datetime
 
 import db
 import main as match_main
-from extract_ex_traits import extract_and_save, fetch_candidates, reason_to_extract, table_state, REASON_LABEL
 from score_functions.ex import (
-    COMPARE_PROMPT_VERSION,
+    PAIR_PROMPT_VERSION,
+    RESAMPLE_EXTRA,
+    SAMPLES,
     ExScoringError,
-    ItemScorer,
-    MemoryItemStore,
+    MemoryPairStore,
+    PairScorer,
     ex_score,
     final_score as combine_final_score,
 )
-from score_functions.ex_traits import (
-    CRITERIA,
-    CRITERION_KO,
-    EXTRACT_PROMPT_VERSION,
-    load_trait_book,
-    trait_problems,
-    usable_traits,
-)
+from score_functions.ex_traits import CRITERION_KO
 from score_functions.llm import get_client, resolve_model
 from score_functions.mbti import mbti_score
 from score_functions.tag import tag_inclusion_min, tag_score
@@ -58,7 +51,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(ROOT, "test_match_output")
 SCORE_PREFIX = "점수표_"
 MATCH_PREFIX = "매칭표_"
-TRAIT_PREFIX = "추출결과_"
 PREWARM_ATTEMPTS = 5
 RETRY_PAUSE_SECONDS = 30
 DEFAULT_WORKERS = 4  # 분당 토큰 제한(TPM)에 걸리지 않게 조금 낮게 시작한다.
@@ -73,17 +65,14 @@ PERSON_COLS = [
     ("ex_have", "기타매력(원문)"),
     ("ex_want", "기타이상형(원문)"),
 ]
-SIDE_KO = {"want": "이상형(ex_want)", "have": "매력(ex_have)"}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="v2 ex 채점 시험 실행 (DB에는 ex_trait만 씁니다).")
+    parser = argparse.ArgumentParser(description="ex 원문 평가 시험 실행 (DB에는 쓰지 않습니다).")
     parser.add_argument("--execute", action="store_true", help="실제로 실행합니다. 없으면 점검만 합니다.")
     parser.add_argument("--compare", action="store_true", help="저장된 회차별 점수표를 비교 요약합니다.")
     parser.add_argument("--round", type=int, help="대상 차수. 없으면 .env의 MATCH_ROUND.")
     parser.add_argument("--people", type=int, default=20, help="성별마다 고를 인원 (기본 20).")
-    parser.add_argument("--concurrency", type=int, default=4, help="추출 동시 호출 수 (기본 4).")
-    parser.add_argument("--force", action="store_true", help="최신인 추출 결과도 다시 추출합니다.")
     args = parser.parse_args()
     if args.people < 1:
         parser.error("--people은 1 이상이어야 합니다.")
@@ -105,22 +94,26 @@ def person_cells(person: dict) -> list[str]:
     return [_text(person.get(key)) for key, _label in PERSON_COLS]
 
 
+def _quoted(pieces: list[str]) -> str:
+    return " | ".join(f"「{piece}」" for piece in pieces)
+
+
 def fmt_direction(payload: dict) -> str:
-    """한 방향의 항목별 채점 내용을 사람이 읽기 좋은 여러 줄 문장으로."""
+    """한 방향의 기준별 평가 내용을 사람이 읽기 좋은 여러 줄 문장으로."""
     if not payload["defined"]:
-        return "(요구한 항목 없음)"
+        return "(요구한 기준 없음)"
     lines = []
     for item in payload["criteria"]:
         name = CRITERION_KO[item["criterion"]]
-        if item["source"] == "MISSING":
-            lines.append(f"[{name}] 요구「{item['requested']}」 → 상대가 적지 않음 (0점)")
-            continue
-        mark = " ⚠재샘플" if item.get("resampled") else ""
+        have = _quoted(item["have_quote"]) or "(관련 내용 없음)"
         lines.append(
-            f"[{name}] 요구「{item['requested']}」 vs 보유「{item['possessed']}」 "
-            f"→ {item['label']}({item['score']:g}){mark} — {item['reason']}"
+            f"[{name}] 요구 {_quoted(item['want_quote'])} vs 매력 {have} "
+            f"→ {item['label']}({item['score']:g}) — {item['reason']}"
         )
-    lines.append(f"= {payload['score']:.3f}  (합계 / (n={payload['n']} + k={payload['k']:g}))")
+    mark = " ⚠재샘플" if payload.get("resampled") else ""
+    lines.append(
+        f"= {payload['score']:.3f}  (합계 / (n={payload['n']} + k={payload['k']:g}), 호출 {payload['calls']}회{mark})"
+    )
     return "\n".join(lines)
 
 
@@ -160,30 +153,23 @@ def print_people(students, male_ids, female_ids) -> None:
             print(f"  {number:>2}. {rid}  {person.get('name') or ''}  (기타매력 {have} / 기타이상형 {want})")
 
 
-def find_extraction_targets(read_conn, ids: set[str], exists: bool, force: bool) -> list[dict]:
-    targets = []
-    for row in fetch_candidates(read_conn, None, with_traits=exists):
-        if row["registration_id"] not in ids:
-            continue
-        reason = reason_to_extract(row, force)
-        if reason:
-            targets.append({**row, "reason": reason})
-    read_conn.commit()
-    return targets
-
-
-def build_directed(students, traits, male_ids, female_ids):
+def build_directed(students, male_ids, female_ids):
     directed = []
     for mid in male_ids:
         for wid in female_ids:
-            if match_main.pair_age_ok(students[mid], students[wid]):
-                directed.append((traits[mid]["want"], traits[wid]["have"]))
-                directed.append((traits[wid]["want"], traits[mid]["have"]))
+            m, w = students[mid], students[wid]
+            if match_main.pair_age_ok(m, w):
+                directed.append((m.get("ex_want"), w.get("ex_have")))
+                directed.append((w.get("ex_want"), m.get("ex_have")))
     return directed
 
 
-def prewarm_with_retry(scorer: ItemScorer, directed, workers: int) -> None:
-    """일부 호출이 실패해도 메모리에 쌓인 점수는 남는다. 남은 항목만 다시 시도한다.
+def _no_llm(_want: str, _have: str):
+    raise RuntimeError("점검 모드에서는 LLM을 부르지 않습니다.")
+
+
+def prewarm_with_retry(scorer: PairScorer, directed, workers: int) -> None:
+    """일부 호출이 실패해도 메모리에 쌓인 평가는 남는다. 남은 원문 쌍만 다시 시도한다.
 
     실패의 대부분은 분당 토큰 제한(429)이다. 재시도할 때마다 동시 호출 수를 절반으로 줄이고 잠시 쉰다.
     """
@@ -196,11 +182,11 @@ def prewarm_with_retry(scorer: ItemScorer, directed, workers: int) -> None:
             if attempt == PREWARM_ATTEMPTS:
                 raise
             workers = max(1, workers // 2)
-            print(f"{RETRY_PAUSE_SECONDS}초 쉬고 동시 {workers}개로 남은 항목만 다시 채점합니다.")
+            print(f"{RETRY_PAUSE_SECONDS}초 쉬고 동시 {workers}개로 남은 원문 쌍만 다시 평가합니다.")
             time.sleep(RETRY_PAUSE_SECONDS)
 
 
-def score_all_pairs(students, traits, male_ids, female_ids, scorer) -> list[dict]:
+def score_all_pairs(students, male_ids, female_ids, scorer) -> list[dict]:
     rows = []
     for mid in male_ids:
         for wid in female_ids:
@@ -212,8 +198,7 @@ def score_all_pairs(students, traits, male_ids, female_ids, scorer) -> list[dict
             tag_args = (m["want"] or [], m["have"] or [], w["want"] or [], w["have"] or [])
             ms = mbti_score(m["mbti"], w["mbti"])
             ts = tag_score(*tag_args)
-            mt, wt = traits[mid], traits[wid]
-            ex = ex_score(mt["want"], mt["have"], wt["want"], wt["have"], scorer)
+            ex = ex_score(m.get("ex_want"), m.get("ex_have"), w.get("ex_want"), w.get("ex_have"), scorer)
             final = combine_final_score(ms, ts, ex.score, ex.weight_mode, match_main.W_MBTI, match_main.W_TAG, match_main.W_EX)
             rows.append(
                 {
@@ -299,52 +284,6 @@ def write_match_table(path, stamp, matches, students, male_ids, female_ids) -> N
     write_csv(path, header, out)
 
 
-def write_trait_table(path, read_conn, students, ids: list[str]) -> None:
-    """추출 결과를 원문·재작성·원문 근거와 나란히 놓은 검토용 표."""
-    cols = ", ".join(CRITERIA)
-    with read_conn.cursor() as cur:
-        cur.execute(
-            f"""
-            SELECT registration_id, side, extraction_ok, error_message, raw_response, prompt_version, {cols}
-            FROM ex_trait WHERE registration_id = ANY(%s)
-            """,
-            (ids,),
-        )
-        stored = {(r[0], r[1]): r for r in cur.fetchall()}
-    read_conn.commit()
-
-    header = ["ID", "이름", "성별", "구분", "원문", "추출상태", "기준", "재작성(채점에 쓰임)", "원문 근거(검토용)"]
-    out = []
-    for rid in ids:
-        person = students[rid]
-        gender = "여" if person["gender"] is True else "남"
-        for side in ("want", "have"):
-            head = [rid, person.get("name") or "", gender, SIDE_KO[side]]
-            text = (person.get(f"ex_{side}") or "").strip()
-            if not text:
-                out.append(head + ["", "원문 없음", "", "", ""])
-                continue
-            row = stored.get((rid, side))
-            if row is None:
-                out.append(head + [text, "추출 안 됨", "", "", ""])
-                continue
-            ok, error, raw, version = row[2], row[3], row[4], row[5]
-            values = dict(zip(CRITERIA, row[6:]))
-            if not ok:
-                out.append(head + [text, f"추출 실패: {(error or '')[:200]}", "", "", ""])
-                continue
-            stale = "" if version == EXTRACT_PROMPT_VERSION else f" (이전 프롬프트 {version})"
-            filled = [key for key in CRITERIA if values[key]]
-            if not filled:
-                out.append(head + [text, "추출됨(기준 없음)" + stale, "", "", ""])
-            for key in filled:
-                evidence = ((raw or {}).get("response") or {}).get(key)
-                pieces = evidence.get("evidence") if isinstance(evidence, dict) else None
-                quoted = " | ".join(f"「{p}」" for p in (pieces or []))
-                out.append(head + [text, "추출됨" + stale, CRITERION_KO[key], values[key], quoted])
-    write_csv(path, header, out)
-
-
 # --------------------------------------------------------------------------- 회차 비교
 
 
@@ -424,9 +363,9 @@ def main() -> int:
     if args.round is not None:
         match_main.MATCH_ROUND = args.round  # fetch_students가 이 값으로 접수를 읽는다.
     mode = "실행" if args.execute else "점검만 (LLM 호출·쓰기 없음)"
-    print(f"== v2 ex 채점 시험 [{mode}] ==")
+    print(f"== ex 원문 평가 시험 [{mode}] ==")
     print(f"대상 DB: Aurora {db.aurora_host()}  /  차수 {match_main.MATCH_ROUND}")
-    print(f"추출 프롬프트 {EXTRACT_PROMPT_VERSION} / 비교 프롬프트 {COMPARE_PROMPT_VERSION}")
+    print(f"평가 프롬프트 {PAIR_PROMPT_VERSION}")
 
     model = None
     if args.execute:
@@ -451,96 +390,42 @@ def main() -> int:
             )
             return 1
         read_conn.commit()
-        male_ids, female_ids = select_people(students, male_all, female_all, args.people)
-        people = {rid: students[rid] for rid in male_ids + female_ids}
-        print(f"접수 {len(students)}명 중 남 {len(male_all)}명 / 여 {len(female_all)}명 → 남 {len(male_ids)}명, 여 {len(female_ids)}명 선택")
-        print_people(students, male_ids, female_ids)
-
-        exists, missing_columns = table_state(read_conn)
-        read_conn.commit()
-        if missing_columns:
-            print(
-                f"\n오류: ex_trait에 컬럼이 빠져 있습니다: {', '.join(missing_columns)}\n"
-                "QRious/migrations/aurora/04_ex_background.sql을 Aurora에 적용해 주세요. (여러 번 실행해도 안전합니다)"
-            )
-            return 1
-        if not exists:
-            print("\n오류: ex_trait 테이블이 없습니다. QRious/migrations/aurora/02_ex_trait.sql을 먼저 적용해 주세요.")
-            return 1
-
-        targets = find_extraction_targets(read_conn, set(people), exists, args.force)
-        reasons = Counter(t["reason"] for t in targets)
-        print(f"\n추출 필요: {len(targets)}건")
-        for key, label in REASON_LABEL.items():
-            if reasons[key]:
-                print(f"  - {label}: {reasons[key]}건")
-
-        if not args.execute:
-            if not targets:
-                book = load_trait_book(read_conn, list(people))
-                traits = {
-                    rid: {side: usable_traits(p.get(f"ex_{side}"), book.get(rid, side)) for side in ("want", "have")}
-                    for rid, p in people.items()
-                }
-                try:
-                    model = resolve_model()
-                except RuntimeError as err:
-                    print(f"모델: (--execute 때 필요) {err}")
-                    return 0
-                scorer = ItemScorer(MemoryItemStore(), model, judge=lambda items: (_ for _ in ()).throw(RuntimeError("점검 모드")))
-                units = scorer.pending_units(build_directed(people, traits, male_ids, female_ids))
-                items = sum(len(u) for u in units)
-                print(f"채점할 항목 {items}개 / 호출 묶음 {len(units)}개 → LLM 호출 최소 {len(units) * 3}회 (불일치 시 묶음마다 +2회)")
-            print("\n점검만 했습니다. 아무것도 쓰지 않았습니다. 실제로 실행하려면 --execute를 붙이세요.")
-            return 0
-
-        os.makedirs(OUT_DIR, exist_ok=True)
-        stamp = unique_stamp(started)
-
-        # 2단계: ex_trait 추출 (여기만 쓰기 연결을 쓰고, 저장하는 곳은 ex_trait 하나다)
-        if targets:
-            print(f"\n-- ex_trait 추출 ({len(targets)}건) --")
-            write_conn = db.connect()
-            try:
-                done, skipped, failed = extract_and_save(write_conn, targets, model, args.concurrency)
-            finally:
-                write_conn.close()
-            print(f"추출 완료: 처리 {done}건, 건너뜀 {skipped}건, 실패 {len(failed)}건")
-            for target, error in failed:
-                print(f"  실패 {target['registration_id']} {target['side']}: {error[:200]}")
-
-        book = load_trait_book(read_conn, list(people))
-        read_conn.commit()
-        problems = trait_problems(people, book)
-        if problems:
-            print(f"\n경고: 유효한 추출 결과가 없는 ex 텍스트 {len(problems)}건 — 그 텍스트는 '없음'으로 채점합니다.")
-            for line in problems:
-                print(f"  - {line}")
-        traits = {
-            rid: {side: usable_traits(p.get(f"ex_{side}"), book.get(rid, side)) for side in ("want", "have")}
-            for rid, p in people.items()
-        }
-
-        # 3단계: 채점 (항목 점수는 메모리에만 둔다)
-        print("\n-- 쌍 채점 --")
-        scorer = ItemScorer(MemoryItemStore(), model)
-        directed = build_directed(people, traits, male_ids, female_ids)
-        prewarm_with_retry(scorer, directed, workers=int(os.getenv("EX_WORKERS", str(DEFAULT_WORKERS))))
-        rows = score_all_pairs(people, traits, male_ids, female_ids, scorer)
-
-        # 4단계: 탐욕적 선정 (CSV로만 낸다)
-        scored = [r for r in rows if r["status"] == "scored"]
-        matches = match_main.pick_unique_matches(scored)
-        selected_pairs = {(m["male_id"], m["female_id"]) for m in matches}
-
-        score_path = os.path.join(OUT_DIR, f"{SCORE_PREFIX}{stamp}.csv")
-        match_path = os.path.join(OUT_DIR, f"{MATCH_PREFIX}{stamp}.csv")
-        trait_path = os.path.join(OUT_DIR, f"{TRAIT_PREFIX}{stamp}.csv")
-        write_score_table(score_path, stamp, rows, people, selected_pairs)
-        write_match_table(match_path, stamp, matches, people, male_ids, female_ids)
-        write_trait_table(trait_path, read_conn, people, male_ids + female_ids)
     finally:
         read_conn.close()
+
+    male_ids, female_ids = select_people(students, male_all, female_all, args.people)
+    people = {rid: students[rid] for rid in male_ids + female_ids}
+    print(f"접수 {len(students)}명 중 남 {len(male_all)}명 / 여 {len(female_all)}명 → 남 {len(male_ids)}명, 여 {len(female_ids)}명 선택")
+    print_people(students, male_ids, female_ids)
+    directed = build_directed(people, male_ids, female_ids)
+
+    if not args.execute:
+        pending = PairScorer(MemoryPairStore(), "점검", judge=_no_llm).pending(directed)
+        print(
+            f"\n평가할 원문 쌍 {len(pending)}개 → LLM 호출 최소 {len(pending) * SAMPLES}회 "
+            f"(의견이 갈리면 쌍마다 +{RESAMPLE_EXTRA}회)"
+        )
+        print("\n점검만 했습니다. 아무것도 쓰지 않았습니다. 실제로 실행하려면 --execute를 붙이세요.")
+        return 0
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+    stamp = unique_stamp(started)
+
+    # 채점 (평가 결과는 메모리에만 둔다)
+    print("\n-- 쌍 채점 --")
+    scorer = PairScorer(MemoryPairStore(), model)
+    prewarm_with_retry(scorer, directed, workers=int(os.getenv("EX_WORKERS", str(DEFAULT_WORKERS))))
+    rows = score_all_pairs(people, male_ids, female_ids, scorer)
+
+    # 탐욕적 선정 (CSV로만 낸다)
+    scored = [r for r in rows if r["status"] == "scored"]
+    matches = match_main.pick_unique_matches(scored)
+    selected_pairs = {(m["male_id"], m["female_id"]) for m in matches}
+
+    score_path = os.path.join(OUT_DIR, f"{SCORE_PREFIX}{stamp}.csv")
+    match_path = os.path.join(OUT_DIR, f"{MATCH_PREFIX}{stamp}.csv")
+    write_score_table(score_path, stamp, rows, people, selected_pairs)
+    write_match_table(match_path, stamp, matches, people, male_ids, female_ids)
 
     modes = Counter(r["ex_detail"]["weight_mode"] for r in scored)
     print(f"\n== 완료 ({stamp}) ==")
@@ -552,7 +437,7 @@ def main() -> int:
             f"  {rank:>2}. {m.get('name')} × {w.get('name')}  최종 {item['final_score']:.3f} "
             f"(MBTI {item['mbti_score']:.2f}, 태그 {item['tag_score']:.2f}, 기타 {item['ex_score']:.2f})"
         )
-    print(f"\n저장: {score_path}\n      {match_path}\n      {trait_path}")
+    print(f"\n저장: {score_path}\n      {match_path}")
     return 0
 
 

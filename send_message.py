@@ -5,11 +5,13 @@ import os
 import re
 import socket
 import ssl
+from contextlib import nullcontext
 from typing import Any
 from urllib.parse import urlparse
 
-import psycopg
 from dotenv import load_dotenv
+
+import db
 
 load_dotenv()
 
@@ -19,8 +21,7 @@ MULTIPART_BOUNDARY = "____boundary____"
 
 DEFAULT_MESSAGE = (
     "[QRious - QR소개팅]\n"
-    "축하합니다!\n"
-    "매칭 상대를 확인해보세요.\n"
+    "지금 매칭 결과를 확인해보세요!\n"
     "https://qrious-ysu.vercel.app"
 )
 
@@ -180,44 +181,70 @@ def build_message(
     )
 
 
-def fetch_matches(conn, round_no: int) -> list[dict]:
+def fetch_recipients(conn, round_no: int) -> list[dict]:
+    """해당 차수 접수자 전원. 매칭된 사람만 상대 이름·번호와 순위가 채워진다."""
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT
-                mr.round,
+                r.registration_id,
+                s.name,
+                s.phone,
+                s.gender,
                 mr.rank,
-                mr.male_id,
-                ms.name AS male_name,
-                ms.phone AS male_phone,
-                mr.female_id,
-                fs.name AS female_name,
-                fs.phone AS female_phone
-            FROM match_result mr
-            JOIN registration rm ON rm.registration_id = mr.male_id
-            JOIN student ms ON ms.student_id = rm.student_id
-            JOIN registration rf ON rf.registration_id = mr.female_id
-            JOIN student fs ON fs.student_id = rf.student_id
-            WHERE mr.round = %s
-            ORDER BY mr.rank
+                ps.name AS partner_name,
+                ps.phone AS partner_phone
+            FROM registration r
+            JOIN student s ON s.student_id = r.student_id
+            LEFT JOIN match_result mr
+              ON mr.round = r.round
+             AND (mr.male_id = r.registration_id OR mr.female_id = r.registration_id)
+            LEFT JOIN registration pr
+              ON pr.registration_id = CASE
+                   WHEN mr.male_id = r.registration_id THEN mr.female_id
+                   ELSE mr.male_id
+                 END
+            LEFT JOIN student ps ON ps.student_id = pr.student_id
+            WHERE r.round = %s
+            ORDER BY mr.rank NULLS LAST, r.registration_id
             """,
             (round_no,),
         )
         cols = [d.name for d in cur.description]
-        return [dict(zip(cols, row)) for row in cur.fetchall()]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+    recipients = []
+    for row in rows:
+        if row["gender"] is True:
+            role = "female"
+        elif row["gender"] is False:
+            role = "male"
+        else:
+            role = None
+        recipients.append(
+            {
+                "role": role,
+                "registration_id": row["registration_id"],
+                "receiver_name": row["name"],
+                "receiver_phone": row["phone"],
+                "rank": row["rank"],
+                "partner_name": row["partner_name"],
+                "partner_phone": row["partner_phone"],
+            }
+        )
+    return recipients
 
 
-def already_sent_keys(conn, round_no: int) -> set[tuple[int, str]]:
+def already_sent_ids(conn, round_no: int) -> set[str]:
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT DISTINCT rank, registration_id
+            SELECT DISTINCT registration_id
             FROM match_message
             WHERE round = %s AND success = TRUE
             """,
             (round_no,),
         )
-        return {(row[0], row[1]) for row in cur.fetchall()}
+        return {row[0] for row in cur.fetchall()}
 
 
 def insert_message_log(conn, row: dict[str, Any]) -> None:
@@ -243,30 +270,8 @@ def insert_message_log(conn, row: dict[str, Any]) -> None:
     conn.commit()
 
 
-def recipients_for(match: dict) -> list[dict]:
-    return [
-        {
-            "role": "male",
-            "registration_id": match["male_id"],
-            "receiver_name": match["male_name"],
-            "receiver_phone": match["male_phone"],
-            "partner_name": match["female_name"],
-            "partner_phone": match["female_phone"],
-        },
-        {
-            "role": "female",
-            "registration_id": match["female_id"],
-            "receiver_name": match["female_name"],
-            "receiver_phone": match["female_phone"],
-            "partner_name": match["male_name"],
-            "partner_phone": match["male_phone"],
-        },
-    ]
-
-
 def empty_log(
     round_no: int,
-    match: dict,
     person: dict,
     sender: str,
     receiver: str,
@@ -276,7 +281,7 @@ def empty_log(
 ) -> dict[str, Any]:
     return {
         "round": round_no,
-        "rank": match["rank"],
+        "rank": person["rank"],
         "registration_id": person["registration_id"],
         "role": person["role"],
         "receiver_phone": receiver or (person["receiver_phone"] or ""),
@@ -303,10 +308,7 @@ def send_for_round(round_no: int, dry_run: bool, force: bool, test_send: bool) -
     test_yn = "Y" if test_send else os.getenv("MUNJAON_TEST_YN", "").strip()
     api_url = os.getenv("MUNJAON_API_URL", DEFAULT_API_URL).strip() or DEFAULT_API_URL
     template = os.getenv("MATCH_SMS_TEMPLATE", DEFAULT_MESSAGE)
-    database_url = os.getenv("DATABASE_URL")
 
-    if not database_url:
-        raise RuntimeError("DATABASE_URL이 없습니다.")
     if not dry_run and (not mber_id or not access_key or not sender):
         raise RuntimeError(
             "실제 발송에는 MUNJAON_MBER_ID, MUNJAON_ACCESS_KEY, MUNJAON_SENDER가 필요합니다."
@@ -319,110 +321,113 @@ def send_for_round(round_no: int, dry_run: bool, force: bool, test_send: bool) -
         except Exception as e:
             print(f"출구 IPv4 확인 실패: {e}")
 
-    with psycopg.connect(database_url) as conn:
-        matches = fetch_matches(conn, round_no)
-        sent = set() if force else already_sent_keys(conn, round_no)
-        if not matches:
-            print(f"{round_no}차 match_result가 없습니다.")
-            return
+    with db.connect_reader() as reader:
+        recipients = fetch_recipients(reader, round_no)
+        sent = set() if force else already_sent_ids(reader, round_no)
+    if not recipients:
+        print(f"{round_no}차 접수가 없습니다.")
+        return
+    matched = sum(1 for person in recipients if person["rank"] is not None)
+    print(f"{round_no}차 접수 {len(recipients)}명 (매칭 {matched}명, 미매칭 {len(recipients) - matched}명)")
 
+    # 리더 엔드포인트는 쓰기를 거부하므로 발송 기록(match_message)은 라이터에 남긴다.
+    with (nullcontext() if dry_run else db.connect()) as conn:
         ok = fail = skip = 0
-        for match in matches:
-            for person in recipients_for(match):
-                key = (match["rank"], person["registration_id"])
-                label = (
-                    f"{round_no}차 #{match['rank']} "
-                    f"{person['receiver_name']}({person['registration_id']})"
-                )
-                if key in sent:
-                    skip += 1
-                    print(f"건너뜀(이미 성공) {label}")
-                    continue
+        for person in recipients:
+            place = f"#{person['rank']}" if person["rank"] is not None else "미매칭"
+            label = f"{round_no}차 {place} {person['receiver_name']}({person['registration_id']})"
+            if person["registration_id"] in sent:
+                skip += 1
+                print(f"건너뜀(이미 성공) {label}")
+                continue
+            if person["role"] is None:
+                fail += 1
+                print(f"실패 {label}: 성별이 없어 발송 기록을 남길 수 없음")
+                continue
 
-                receiver = digits_only(person["receiver_phone"])
-                message = build_message(
-                    template,
-                    round_no,
-                    person["receiver_name"],
-                    person["partner_name"],
-                    digits_only(person["partner_phone"]),
-                )
-                if dry_run:
-                    skip += 1
-                    print(f"[dry-run] {label} → {receiver or '(번호 없음)'}: {message}")
-                    continue
+            receiver = digits_only(person["receiver_phone"])
+            message = build_message(
+                template,
+                round_no,
+                person["receiver_name"],
+                person["partner_name"],
+                digits_only(person["partner_phone"]),
+            )
+            if dry_run:
+                skip += 1
+                print(f"[dry-run] {label} → {receiver or '(번호 없음)'}: {message}")
+                continue
 
-                if len(receiver) < 10:
-                    insert_message_log(
-                        conn,
-                        empty_log(
-                            round_no,
-                            match,
-                            person,
-                            sender,
-                            receiver,
-                            message,
-                            test_yn,
-                            "수신번호가 없거나 형식이 올바르지 않음",
-                        ),
-                    )
-                    fail += 1
-                    print(f"실패 {label}: 수신번호 없음")
-                    continue
-
-                name_str = person["receiver_name"] or "" if "*이름*" in message else ""
-                http_status, body = send_mesg(
-                    mber_id,
-                    access_key,
-                    sender,
-                    receiver,
-                    message,
-                    name_str=name_str,
-                    test_yn=test_yn,
-                    api_url=api_url,
-                )
-                parsed = parse_api_body(body)
-                success = bool(http_status == 200 and parsed["success"])
-                error_text = None
-                if not success:
-                    error_text = parsed["error_text"] or parsed["result_code"] or (body[:500] if body else "빈 응답")
-
+            if len(receiver) < 10:
                 insert_message_log(
                     conn,
-                    {
-                        "round": round_no,
-                        "rank": match["rank"],
-                        "registration_id": person["registration_id"],
-                        "role": person["role"],
-                        "receiver_phone": receiver,
-                        "sender_phone": sender,
-                        "message_body": message,
-                        "success": success,
-                        "http_status": http_status,
-                        "api_code": parsed["result_code"],
-                        "api_response": body[:2000] if body else None,
-                        "msg_group_id": parsed["msg_group_id"],
-                        "msg_type": parsed["msg_type"],
-                        "block_cnt": parsed["block_cnt"],
-                        "fail_cnt": parsed["fail_cnt"],
-                        "success_cnt": parsed["success_cnt"],
-                        "test_yn": parsed["test_yn"] if parsed["test_yn"] is not None else (test_yn or None),
-                        "error_text": error_text,
-                    },
+                    empty_log(
+                        round_no,
+                        person,
+                        sender,
+                        receiver,
+                        message,
+                        test_yn,
+                        "수신번호가 없거나 형식이 올바르지 않음",
+                    ),
                 )
-                if success:
-                    ok += 1
-                    sent.add(key)
-                    print(f"성공 {label} → {receiver} (group={parsed['msg_group_id']})")
-                else:
-                    fail += 1
-                    print(f"실패 {label} → {receiver}: {error_text}")
+                fail += 1
+                print(f"실패 {label}: 수신번호 없음")
+                continue
 
-        print(f"완료: 성공 {ok}, 실패 {fail}, 건너뜀 {skip} (총 매칭 {len(matches)}쌍)")
+            name_str = person["receiver_name"] or "" if "*이름*" in message else ""
+            http_status, body = send_mesg(
+                mber_id,
+                access_key,
+                sender,
+                receiver,
+                message,
+                name_str=name_str,
+                test_yn=test_yn,
+                api_url=api_url,
+            )
+            parsed = parse_api_body(body)
+            success = bool(http_status == 200 and parsed["success"])
+            error_text = None
+            if not success:
+                error_text = parsed["error_text"] or parsed["result_code"] or (body[:500] if body else "빈 응답")
+
+            insert_message_log(
+                conn,
+                {
+                    "round": round_no,
+                    "rank": person["rank"],
+                    "registration_id": person["registration_id"],
+                    "role": person["role"],
+                    "receiver_phone": receiver,
+                    "sender_phone": sender,
+                    "message_body": message,
+                    "success": success,
+                    "http_status": http_status,
+                    "api_code": parsed["result_code"],
+                    "api_response": body[:2000] if body else None,
+                    "msg_group_id": parsed["msg_group_id"],
+                    "msg_type": parsed["msg_type"],
+                    "block_cnt": parsed["block_cnt"],
+                    "fail_cnt": parsed["fail_cnt"],
+                    "success_cnt": parsed["success_cnt"],
+                    "test_yn": parsed["test_yn"] if parsed["test_yn"] is not None else (test_yn or None),
+                    "error_text": error_text,
+                },
+            )
+            if success:
+                ok += 1
+                sent.add(person["registration_id"])
+                print(f"성공 {label} → {receiver} (group={parsed['msg_group_id']})")
+            else:
+                fail += 1
+                print(f"실패 {label} → {receiver}: {error_text}")
+
+        print(f"완료: 성공 {ok}, 실패 {fail}, 건너뜀 {skip} (접수 {len(recipients)}명)")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="match_result 기준으로 매칭 안내 문자를 발송한다.")
+    parser = argparse.ArgumentParser(description="해당 차수 접수자 전원에게 문자를 발송한다.")
     parser.add_argument("--round", type=int, choices=(1, 2), help="접수 차수. 생략하면 MATCH_ROUND 또는 1.")
     parser.add_argument("--dry-run", action="store_true", help="API를 호출하지 않고 발송 대상만 출력한다.")
     parser.add_argument("--force", action="store_true", help="이미 성공 기록이 있어도 다시 보낸다.")

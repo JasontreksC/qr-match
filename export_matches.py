@@ -4,8 +4,9 @@ import argparse
 import csv
 import os
 
-import psycopg
 from dotenv import load_dotenv
+
+import db
 
 load_dotenv()
 
@@ -84,17 +85,24 @@ CRITERION_LABEL = {
 }
 
 
+def _join_quotes(value) -> str:
+    if isinstance(value, list):
+        return " / ".join(str(piece).replace("\n", " ").strip() for piece in value if piece)
+    return (value or "").replace("\n", " / ").strip()
+
+
 def _fmt_ex_item(item: dict, name: str = "") -> str:
-    # 이전 방식(match_kind/want_evidence/have_evidence)과 새 방식(label/requested/possessed/source)을 모두 읽는다.
+    # 이전 방식(match_kind/want_evidence/have_evidence, label/requested/possessed/source)과
+    # 원문 평가 방식(label/want_quote/have_quote)을 모두 읽는다.
     name = CRITERION_LABEL.get(name, name)
     raw_kind = item.get("match_kind") or item.get("label")
     kind = KIND_LABEL.get(raw_kind, raw_kind or "")
     if item.get("source") == "MISSING":
         kind = "미기재"
     reason = (item.get("reason") or "").replace("\n", " ").strip()
-    want_ev = (item.get("want_evidence") or item.get("requested") or "").replace("\n", " / ").strip()
-    have_ev = (item.get("have_evidence") or item.get("possessed") or "").replace("\n", " / ").strip()
-    evidence = (item.get("evidence") or "").replace("\n", " / ").strip()
+    want_ev = _join_quotes(item.get("want_quote") or item.get("want_evidence") or item.get("requested"))
+    have_ev = _join_quotes(item.get("have_quote") or item.get("have_evidence") or item.get("possessed"))
+    evidence = _join_quotes(item.get("evidence"))
     parts = [f"{name}: {kind}"] if name else [kind]
     if reason:
         parts.append(reason)
@@ -236,7 +244,7 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                     "매력태그점수": _fmt_score(row[4]),
                     "기타매력점수": _fmt_score(row[5]),
                     "남_이름": row[7],
-                    "남_나이": row[8],
+                    "남_생년월일": row[8],
                     "남_전공": row[9],
                     "남_MBTI": row[10],
                     "남_전화번호": row[11],
@@ -246,7 +254,7 @@ def fetch_rows(conn, round_no: int) -> list[dict]:
                     "남_기타매력": row[15],
                     "남_기타이상형": row[16],
                     "여_이름": row[17],
-                    "여_나이": row[18],
+                    "여_생년월일": row[18],
                     "여_전공": row[19],
                     "여_MBTI": row[20],
                     "여_전화번호": row[21],
@@ -280,11 +288,8 @@ def main() -> None:
 
     round_no = resolve_round(args.round)
     output = args.output or os.path.join(ROOT, f"매칭결과_{round_no}차.csv")
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL이 없습니다.")
 
-    with psycopg.connect(database_url) as conn:
+    with db.connect_reader() as conn:
         rows = fetch_rows(conn, round_no)
 
     if not rows:

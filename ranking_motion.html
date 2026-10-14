@@ -1,0 +1,1769 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>학과별 접수 랭킹 모션 그래픽 · QRious</title>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <style>
+    :root {
+      --bg-base: #07090e;
+      --bg-panel: rgba(16, 20, 30, 0.84);
+      --bg-panel-solid: #111622;
+      --bg-elevated: rgba(26, 33, 48, 0.78);
+      --border-subtle: rgba(148, 163, 184, 0.14);
+      --border-highlight: rgba(99, 102, 241, 0.45);
+      --text-primary: #f8fafc;
+      --text-secondary: #cbd5e1;
+      --text-muted: #64748b;
+      --accent-primary: #6366f1;
+      --accent-secondary: #ec4899;
+      --emerald: #10b981;
+      --amber: #f59e0b;
+      --male-color: #38bdf8;
+      --female-color: #f472b6;
+      --row-height: 44px;
+      --row-gap: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      background: radial-gradient(circle at 15% 15%, #131b2e 0%, #07090e 55%, #05070b 100%);
+      color: var(--text-primary);
+      font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      overflow-x: hidden;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      max-width: 1560px;
+      margin: 0 auto;
+      padding: 18px 24px 20px;
+      gap: 14px;
+    }
+
+    /* ── Top Header ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 14px 20px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 18px;
+      letter-spacing: -0.03em;
+      color: #fff;
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+      flex-shrink: 0;
+    }
+
+    .brand-title-wrap h1 {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .readonly-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.32);
+      padding: 3px 9px;
+      border-radius: 999px;
+      letter-spacing: 0.01em;
+    }
+
+    .readonly-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 8px #10b981;
+      animation: pulse-dot 2.2s infinite ease-in-out;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    .brand-sub {
+      margin-top: 3px;
+      font-size: 12.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand-sub span.sep {
+      opacity: 0.35;
+    }
+
+    /* ── Primary Action Buttons ── */
+    .primary-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 42px;
+      padding: 0 18px;
+      border-radius: 11px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 650;
+      cursor: pointer;
+      transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+      border: 1px solid transparent;
+      outline: none;
+      white-space: nowrap;
+    }
+
+    .btn:active {
+      transform: translateY(1px) scale(0.985);
+    }
+
+    .btn-play {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #ec4899 100%);
+      color: #ffffff;
+      box-shadow: 0 6px 22px rgba(99, 102, 241, 0.4);
+      min-width: 128px;
+      font-size: 14.5px;
+    }
+
+    .btn-play:hover {
+      box-shadow: 0 8px 26px rgba(139, 92, 246, 0.58);
+      filter: brightness(1.06);
+    }
+
+    .btn-play.is-playing {
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.36);
+    }
+
+    .btn-secondary {
+      background: rgba(30, 41, 59, 0.75);
+      border-color: rgba(148, 163, 184, 0.22);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(51, 65, 85, 0.85);
+      border-color: rgba(148, 163, 184, 0.4);
+    }
+
+    .btn-refresh {
+      background: rgba(16, 185, 129, 0.14);
+      border-color: rgba(16, 185, 129, 0.38);
+      color: #6ee7b7;
+    }
+
+    .btn-refresh:hover {
+      background: rgba(16, 185, 129, 0.24);
+      border-color: rgba(16, 185, 129, 0.6);
+      color: #a7f3d0;
+    }
+
+    .btn-refresh.loading svg {
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ── Options & Status Strip ── */
+    .control-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 10px 18px;
+      background: rgba(15, 20, 32, 0.72);
+      border: 1px solid var(--border-subtle);
+      border-radius: 13px;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+    }
+
+    .control-label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .seg-group {
+      display: inline-flex;
+      background: rgba(7, 9, 14, 0.75);
+      padding: 3px;
+      border-radius: 9px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .seg-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+
+    .seg-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .seg-btn.active {
+      background: rgba(99, 102, 241, 0.24);
+      color: #c7d2fe;
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.45);
+    }
+
+    /* ── Main Stage (Bar Chart Race Canvas) ── */
+    .stage-card {
+      position: relative;
+      flex: 1;
+      min-height: 560px;
+      background: linear-gradient(180deg, rgba(16, 21, 34, 0.92) 0%, rgba(10, 14, 23, 0.96) 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      padding: 20px 26px 22px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.75);
+    }
+
+    /* Stage Top Info Row */
+    .stage-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 14px;
+      margin-bottom: 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+      z-index: 3;
+    }
+
+    .clock-banner {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .clock-date {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      font-variant-numeric: tabular-nums;
+      color: #f8fafc;
+    }
+
+    .clock-hour-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 13px;
+      border-radius: 9px;
+      background: rgba(99, 102, 241, 0.16);
+      border: 1px solid rgba(99, 102, 241, 0.38);
+      color: #e0e7ff;
+      font-size: 16px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .clock-delta-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(245, 158, 11, 0.16);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fcd34d;
+      font-variant-numeric: tabular-nums;
+      opacity: 0;
+      transform: translateY(2px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+
+    .clock-delta-badge.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .kpi-group {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .kpi-box {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .kpi-label {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .kpi-value {
+      font-size: 22px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      color: #f8fafc;
+      letter-spacing: -0.02em;
+    }
+
+    .kpi-value small {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-left: 3px;
+    }
+
+    .gender-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pill-male {
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(56, 189, 248, 0.13);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: #7dd3fc;
+    }
+
+    .pill-female {
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(244, 114, 182, 0.13);
+      border: 1px solid rgba(244, 114, 182, 0.3);
+      color: #f9a8d4;
+    }
+
+    /* ── Race Chart Area ── */
+    .race-viewport {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      margin-top: 4px;
+    }
+
+    /* X-axis Grid Lines */
+    .grid-layer {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 230px;
+      right: 130px;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .grid-line {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: rgba(148, 163, 184, 0.09);
+      transition: left 0.08s linear;
+    }
+
+    .grid-line-label {
+      position: absolute;
+      top: -6px;
+      transform: translateX(-50%);
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(148, 163, 184, 0.45);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Animated Department Rows */
+    .bars-layer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      padding-top: 14px;
+    }
+
+    .race-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: var(--row-height);
+      display: flex;
+      align-items: center;
+      will-change: transform, opacity;
+      transition: opacity 0.25s ease;
+    }
+
+    .race-row.is-overtaking {
+      z-index: 10;
+    }
+
+    /* Left Column: Rank + Major Name */
+    .row-meta {
+      width: 222px;
+      padding-right: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 9px;
+      flex-shrink: 0;
+    }
+
+    .rank-change {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 5px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .rank-change.up {
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.14);
+    }
+
+    .rank-change.down {
+      color: #fb7185;
+      background: rgba(244, 63, 94, 0.12);
+    }
+
+    .rank-change.new {
+      color: #fde047;
+      background: rgba(234, 179, 8, 0.16);
+    }
+
+    .major-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f1f5f9;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 150px;
+      letter-spacing: -0.015em;
+    }
+
+    .rank-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      background: rgba(30, 41, 59, 0.9);
+      color: #94a3b8;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      flex-shrink: 0;
+    }
+
+    .race-row[data-rank="1"] .rank-badge {
+      background: linear-gradient(135deg, #fbbf24, #d97706);
+      color: #090d16;
+      border-color: #fde68a;
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+    }
+
+    .race-row[data-rank="2"] .rank-badge {
+      background: linear-gradient(135deg, #e2e8f0, #94a3b8);
+      color: #090d16;
+      border-color: #f8fafc;
+    }
+
+    .race-row[data-rank="3"] .rank-badge {
+      background: linear-gradient(135deg, #f59e0b, #b45309);
+      color: #090d16;
+      border-color: #fcd34d;
+    }
+
+    /* Bar Track */
+    .bar-track {
+      position: relative;
+      flex: 1;
+      height: 32px;
+      margin-right: 130px;
+      display: flex;
+      align-items: center;
+    }
+
+    .bar-fill {
+      position: relative;
+      height: 100%;
+      border-radius: 0 10px 10px 0;
+      min-width: 6px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+    }
+
+    .bar-fill.has-delta {
+      box-shadow: 0 0 20px var(--bar-glow, rgba(99, 102, 241, 0.6));
+    }
+
+    /* Gender Split Overlay Inside Bar */
+    .bar-gender-split {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    body.show-gender .bar-gender-split {
+      opacity: 1;
+    }
+
+    .bar-gender-male {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(14, 165, 233, 0.85), rgba(56, 189, 248, 0.92));
+      border-right: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .bar-gender-female {
+      height: 100%;
+      flex: 1;
+      background: linear-gradient(90deg, rgba(236, 72, 153, 0.85), rgba(244, 114, 182, 0.92));
+    }
+
+    /* Gloss highlight on bar */
+    .bar-fill::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 60%);
+      pointer-events: none;
+    }
+
+    /* Value & Delta at Bar End */
+    .bar-value-group {
+      position: absolute;
+      left: 100%;
+      padding-left: 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .bar-count {
+      font-size: 15px;
+      font-weight: 800;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .bar-gender-detail {
+      display: none;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    body.show-gender .bar-gender-detail {
+      display: inline-flex;
+      gap: 5px;
+    }
+
+    .bar-delta-pop {
+      font-size: 11.5px;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(250, 204, 21, 0.2);
+      border: 1px solid rgba(250, 204, 21, 0.55);
+      color: #fef08a;
+      font-variant-numeric: tabular-nums;
+      animation: pop-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes pop-in {
+      from { transform: scale(0.6); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    /* Floating Watermark HUD in Bottom-Right of Chart */
+    .watermark-hud {
+      position: absolute;
+      right: 22px;
+      bottom: 14px;
+      text-align: right;
+      pointer-events: none;
+      z-index: 1;
+      opacity: 0.92;
+    }
+
+    .hud-big-count {
+      font-size: 64px;
+      font-weight: 900;
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      background: linear-gradient(180deg, rgba(248, 250, 252, 0.22) 0%, rgba(148, 163, 184, 0.06) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hud-sub-clock {
+      font-size: 18px;
+      font-weight: 800;
+      color: rgba(148, 163, 184, 0.25);
+      font-variant-numeric: tabular-nums;
+      margin-top: 4px;
+    }
+
+    /* Empty / Pre-start State Overlay */
+    .empty-stage-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--text-muted);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .empty-stage-hint.visible {
+      opacity: 1;
+    }
+
+    /* ── Bottom Timeline & Scrubber Panel ── */
+    .timeline-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 14px 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      backdrop-filter: blur(16px);
+    }
+
+    .timeline-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .timeline-step-btns {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .step-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: var(--text-secondary);
+      border-radius: 7px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .step-btn:hover {
+      background: rgba(51, 65, 85, 0.9);
+      color: #fff;
+    }
+
+    /* Histogram + Scrubber Track */
+    .scrubber-container {
+      position: relative;
+      height: 46px;
+      background: rgba(7, 9, 14, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 10px;
+      cursor: pointer;
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+      padding: 6px 8px 0;
+    }
+
+    .histogram-bars {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      pointer-events: none;
+    }
+
+    .hist-bar {
+      flex: 1;
+      min-width: 1px;
+      background: rgba(148, 163, 184, 0.22);
+      border-radius: 2px 2px 0 0;
+      transition: background 0.12s ease;
+    }
+
+    .hist-bar.passed {
+      background: rgba(99, 102, 241, 0.65);
+    }
+
+    .hist-bar.active-now {
+      background: #f59e0b;
+    }
+
+    .scrubber-progress {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.18));
+      border-right: 2px solid #f472b6;
+      pointer-events: none;
+    }
+
+    .timeline-ticks {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      padding: 0 2px;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      color: #ecfdf5;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-size: 13.5px;
+      font-weight: 600;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      transform: translateY(20px);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+      z-index: 100;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="brand-group">
+        <div class="brand-mark">QR</div>
+        <div class="brand-title-wrap">
+          <h1>
+            학과별 접수 랭킹 모션 그래픽
+            <span class="readonly-badge" id="readonlyBadge" title="AWS Aurora Reader 인스턴스 읽기 전용 연결">
+              <span class="readonly-dot"></span>
+              READ-ONLY · AURORA READER
+            </span>
+          </h1>
+          <div class="brand-sub">
+            <span id="metaEndpoint">연결 확인 중...</span>
+            <span class="sep">|</span>
+            <span id="metaFetchedAt">최근 조회: -</span>
+            <span class="sep">|</span>
+            <span id="metaRange">1시간 단위 누적 집계</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Primary Controls: Play & Refresh -->
+      <div class="primary-actions">
+        <button class="btn btn-play" id="btnPlay" type="button" title="모션 그래픽 재생 / 일시정지 (Space)">
+          <svg id="iconPlay" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5.14v14l11-7-11-7z" />
+          </svg>
+          <span id="labelPlay">재생</span>
+        </button>
+
+        <button class="btn btn-secondary" id="btnRestart" type="button" title="처음(0시점)부터 다시 재생">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+          <span>처음부터</span>
+        </button>
+
+        <button class="btn btn-refresh" id="btnRefresh" type="button" title="Aurora Reader DB에서 최신 접수 현황을 다시 조회하여 재생합니다 (R)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+            <path d="M16 16h5v5" />
+          </svg>
+          <span>새로고침 (최신 DB 조회)</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Secondary Options Strip -->
+    <section class="control-strip">
+      <div class="control-group">
+        <div class="control-item">
+          <span class="control-label">접수 차수</span>
+          <div class="seg-group" id="roundSelect">
+            <button type="button" class="seg-btn active" data-round="all">전체</button>
+            <button type="button" class="seg-btn" data-round="1">1차</button>
+            <button type="button" class="seg-btn" data-round="2">2차</button>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <span class="control-label">표시 순위</span>
+          <div class="seg-group" id="topNSelect">
+            <button type="button" class="seg-btn" data-topn="10">TOP 10</button>
+            <button type="button" class="seg-btn active" data-topn="15">TOP 15</button>
+            <button type="button" class="seg-btn" data-topn="20">TOP 20</button>
+            <button type="button" class="seg-btn" data-topn="45">전체 학과</button>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <span class="control-label">1시간 진행 모드</span>
+          <div class="seg-group" id="paceModeSelect">
+            <button type="button" class="seg-btn active" data-mode="smart" title="1시간 단위로 진행하되 심야 등 접수 0건 구간은 빠르게 통과">1시간 단위 (공백 가속)</button>
+            <button type="button" class="seg-btn" data-mode="uniform" title="모든 1시간 구간을 동일한 속도로 정밀 재생">1시간 정속 (전체 시간)</button>
+            <button type="button" class="seg-btn" data-mode="active" title="신규 접수가 발생한 시간대만 모아서 재생">변화 발생 시간대만</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-item">
+          <span class="control-label">재생 시간</span>
+          <div class="seg-group" id="durationSelect">
+            <button type="button" class="seg-btn" data-duration="15">15초</button>
+            <button type="button" class="seg-btn active" data-duration="30">30초</button>
+            <button type="button" class="seg-btn" data-duration="45">45초</button>
+            <button type="button" class="seg-btn" data-duration="60">60초</button>
+          </div>
+        </div>
+
+        <div class="control-item">
+          <span class="control-label">막대 표시</span>
+          <div class="seg-group" id="genderToggle">
+            <button type="button" class="seg-btn active" data-gender="off">학과별 컬러</button>
+            <button type="button" class="seg-btn" data-gender="on">남·여 비율 분할</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Motion Graphic Stage -->
+    <main class="stage-card" id="stageCard">
+      <div class="stage-header">
+        <div class="clock-banner">
+          <div class="clock-date" id="clockDate">데이터 불러오는 중...</div>
+          <div class="clock-hour-pill" id="clockHour">--:00 ~ --:00</div>
+          <div class="clock-delta-badge" id="clockDelta">+0명 신규 접수</div>
+        </div>
+
+        <div class="kpi-group">
+          <div class="gender-pills">
+            <span class="pill-male" id="kpiMale">남 0명</span>
+            <span class="pill-female" id="kpiFemale">여 0명</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-label">참여 학과</span>
+            <span class="kpi-value"><span id="kpiMajors">0</span><small id="kpiTotalMajors">/ 0개</small></span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-label">누적 접수 인원</span>
+            <span class="kpi-value"><span id="kpiTotal">0</span><small>명</small></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="race-viewport" id="raceViewport">
+        <div class="grid-layer" id="gridLayer"></div>
+        <div class="bars-layer" id="barsLayer"></div>
+
+        <div class="empty-stage-hint" id="emptyStageHint">
+          <div style="font-size: 16px; font-weight: 700;">상단의 [재생] 버튼을 누르면 1시간 단위 학과별 랭킹 모션 그래픽이 시작됩니다</div>
+          <div style="font-size: 13px;">타임라인 막대를 클릭·드래그하여 원하는 시간대로 이동할 수도 있습니다</div>
+        </div>
+
+        <div class="watermark-hud">
+          <div class="hud-big-count" id="hudBigCount">0명</div>
+          <div class="hud-sub-clock" id="hudSubClock">00/00 00:00</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Interactive 1-Hour Timeline & Histogram -->
+    <footer class="timeline-card">
+      <div class="timeline-top">
+        <div>
+          <strong id="timelineFrameInfo" style="color: #e2e8f0;">0 / 0 시간 프레임</strong>
+          <span style="margin-left: 10px; color: var(--text-muted);" id="timelineActiveSummary">
+            막대 높이 = 해당 1시간 동안의 신규 접수 인원
+          </span>
+        </div>
+        <div class="timeline-step-btns">
+          <button type="button" class="step-btn" id="btnPrevHour" title="이전 1시간 (←)">◀ -1시간</button>
+          <button type="button" class="step-btn" id="btnNextHour" title="다음 1시간 (→)">+1시간 ▶</button>
+          <button type="button" class="step-btn" id="btnJumpEnd" title="최종 집계 시점 보기">최종 시점 ⏭</button>
+        </div>
+      </div>
+
+      <div class="scrubber-container" id="scrubberContainer">
+        <div class="scrubber-progress" id="scrubberProgress" style="width: 0%;"></div>
+        <div class="histogram-bars" id="histogramBars"></div>
+      </div>
+
+      <div class="timeline-ticks">
+        <span id="tickStart">시작 시점</span>
+        <span id="tickMid">중간 시점</span>
+        <span id="tickEnd">최신 시점</span>
+      </div>
+    </footer>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    (() => {
+      // ── Harmonious Department Color Palette ──
+      const PALETTE = [
+        ["#6366f1", "#818cf8", "rgba(99, 102, 241, 0.55)"],
+        ["#ec4899", "#f472b6", "rgba(236, 72, 153, 0.55)"],
+        ["#06b6d4", "#22d3ee", "rgba(6, 182, 212, 0.55)"],
+        ["#10b981", "#34d399", "rgba(16, 185, 129, 0.55)"],
+        ["#f59e0b", "#fbbf24", "rgba(245, 158, 11, 0.55)"],
+        ["#8b5cf6", "#a78bfa", "rgba(139, 92, 246, 0.55)"],
+        ["#3b82f6", "#60a5fa", "rgba(59, 130, 246, 0.55)"],
+        ["#f43f5e", "#fb7185", "rgba(244, 63, 94, 0.55)"],
+        ["#14b8a6", "#2dd4bf", "rgba(20, 184, 166, 0.55)"],
+        ["#eab308", "#facc15", "rgba(234, 179, 8, 0.55)"],
+        ["#a855f7", "#c084fc", "rgba(168, 85, 247, 0.55)"],
+        ["#0ea5e9", "#38bdf8", "rgba(14, 165, 233, 0.55)"],
+        ["#84cc16", "#a3e635", "rgba(132, 204, 22, 0.55)"],
+        ["#f97316", "#fb923c", "rgba(249, 115, 22, 0.55)"],
+      ];
+
+      function colorForMajor(majorId) {
+        let hash = 2166136261;
+        for (let i = 0; i < majorId.length; i++) {
+          hash ^= majorId.charCodeAt(i);
+          hash = Math.imul(hash, 16777619);
+        }
+        return PALETTE[Math.abs(hash) % PALETTE.length];
+      }
+
+      // ── Application State ──
+      const state = {
+        rawPayload: null,
+        majorMap: new Map(),
+        frames: [],          // Currently active frames list (1-hour steps)
+        round: "all",
+        topN: 15,
+        paceMode: "smart",   // "smart" | "uniform" | "active"
+        targetDurationSec: 30,
+        showGender: false,
+
+        // Animation playback state
+        isPlaying: false,
+        cursor: 0,           // Floating point index into state.frames: [0 .. frames.length - 1]
+        lastRafTime: null,
+        rafId: null,
+
+        // Per-major visual tracking for smooth vertical rank gliding
+        rowStates: new Map(), // majorId -> { el, y, currentRank, prevRank, rankDelta, rankChangeAge }
+        displayMaxCount: 5,
+      };
+
+      // ── DOM References ──
+      const el = {
+        btnPlay: document.getElementById("btnPlay"),
+        iconPlay: document.getElementById("iconPlay"),
+        labelPlay: document.getElementById("labelPlay"),
+        btnRestart: document.getElementById("btnRestart"),
+        btnRefresh: document.getElementById("btnRefresh"),
+        readonlyBadge: document.getElementById("readonlyBadge"),
+        metaEndpoint: document.getElementById("metaEndpoint"),
+        metaFetchedAt: document.getElementById("metaFetchedAt"),
+        metaRange: document.getElementById("metaRange"),
+        clockDate: document.getElementById("clockDate"),
+        clockHour: document.getElementById("clockHour"),
+        clockDelta: document.getElementById("clockDelta"),
+        kpiMale: document.getElementById("kpiMale"),
+        kpiFemale: document.getElementById("kpiFemale"),
+        kpiMajors: document.getElementById("kpiMajors"),
+        kpiTotalMajors: document.getElementById("kpiTotalMajors"),
+        kpiTotal: document.getElementById("kpiTotal"),
+        raceViewport: document.getElementById("raceViewport"),
+        gridLayer: document.getElementById("gridLayer"),
+        barsLayer: document.getElementById("barsLayer"),
+        emptyStageHint: document.getElementById("emptyStageHint"),
+        hudBigCount: document.getElementById("hudBigCount"),
+        hudSubClock: document.getElementById("hudSubClock"),
+        timelineFrameInfo: document.getElementById("timelineFrameInfo"),
+        scrubberContainer: document.getElementById("scrubberContainer"),
+        scrubberProgress: document.getElementById("scrubberProgress"),
+        histogramBars: document.getElementById("histogramBars"),
+        tickStart: document.getElementById("tickStart"),
+        tickMid: document.getElementById("tickMid"),
+        tickEnd: document.getElementById("tickEnd"),
+        btnPrevHour: document.getElementById("btnPrevHour"),
+        btnNextHour: document.getElementById("btnNextHour"),
+        btnJumpEnd: document.getElementById("btnJumpEnd"),
+        toast: document.getElementById("toast"),
+      };
+
+      let toastTimer = null;
+      function showToast(msg) {
+        el.toast.textContent = msg;
+        el.toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => el.toast.classList.remove("show"), 2800);
+      }
+
+      // ── Build Active Frame Sequence Based on Pace Mode ──
+      function rebuildFrames() {
+        if (!state.rawPayload || !state.rawPayload.frames) {
+          state.frames = [];
+          return;
+        }
+        const allFrames = state.rawPayload.frames;
+        if (state.paceMode === "active") {
+          // Keep initial 0 frame + hours with activity + final frame
+          state.frames = allFrames.filter(
+            (f, idx) => idx === 0 || f.has_activity || idx === allFrames.length - 1
+          );
+        } else {
+          state.frames = allFrames.slice();
+        }
+        buildHistogram();
+      }
+
+      // ── Build Hourly Histogram in Scrubber ──
+      function buildHistogram() {
+        el.histogramBars.innerHTML = "";
+        const frames = state.frames;
+        if (frames.length <= 1) return;
+
+        let maxDelta = 1;
+        for (const f of frames) {
+          if (f.delta_total > maxDelta) maxDelta = f.delta_total;
+        }
+
+        const frag = document.createDocumentFragment();
+        frames.forEach((f, idx) => {
+          const bar = document.createElement("div");
+          bar.className = "hist-bar";
+          const ratio = f.delta_total > 0 ? Math.max(0.16, f.delta_total / maxDelta) : 0.05;
+          bar.style.height = `${Math.round(ratio * 100)}%`;
+          bar.dataset.idx = idx;
+          frag.appendChild(bar);
+        });
+        el.histogramBars.appendChild(frag);
+
+        const firstReal = frames[1] || frames[0];
+        const midReal = frames[Math.floor(frames.length / 2)] || firstReal;
+        const lastReal = frames[frames.length - 1] || firstReal;
+        el.tickStart.textContent = firstReal.label.short_date + " " + firstReal.label.hour_short;
+        el.tickMid.textContent = midReal.label.short_date + " " + midReal.label.hour_short;
+        el.tickEnd.textContent = lastReal.label.short_date + " " + lastReal.label.hour_short;
+      }
+
+      // ── Create or Reset DOM Elements for Each Department ──
+      function initMajorRows() {
+        el.barsLayer.innerHTML = "";
+        state.rowStates.clear();
+        if (!state.rawPayload) return;
+
+        for (const m of state.rawPayload.majors) {
+          const [c1, c2, glow] = colorForMajor(m.major_id);
+          const rowEl = document.createElement("div");
+          rowEl.className = "race-row";
+          rowEl.style.opacity = "0";
+          rowEl.style.transform = `translate3d(0, 600px, 0)`;
+          rowEl.style.setProperty("--bar-glow", glow);
+
+          rowEl.innerHTML = `
+            <div class="row-meta">
+              <span class="rank-change" style="display:none;"></span>
+              <span class="major-name" title="${m.name}">${m.name}</span>
+              <span class="rank-badge">-</span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: 0%; background: linear-gradient(90deg, ${c1}, ${c2});">
+                <div class="bar-gender-split">
+                  <div class="bar-gender-male" style="width: 50%;"></div>
+                  <div class="bar-gender-female"></div>
+                </div>
+                <div class="bar-value-group">
+                  <span class="bar-count">0명</span>
+                  <span class="bar-delta-pop" style="display:none;">+0</span>
+                  <span class="bar-gender-detail"></span>
+                </div>
+              </div>
+            </div>
+          `;
+
+          el.barsLayer.appendChild(rowEl);
+          state.rowStates.set(m.major_id, {
+            el: rowEl,
+            rankBadgeEl: rowEl.querySelector(".rank-badge"),
+            rankChangeEl: rowEl.querySelector(".rank-change"),
+            barFillEl: rowEl.querySelector(".bar-fill"),
+            maleSplitEl: rowEl.querySelector(".bar-gender-male"),
+            barCountEl: rowEl.querySelector(".bar-count"),
+            barDeltaEl: rowEl.querySelector(".bar-delta-pop"),
+            barGenderDetailEl: rowEl.querySelector(".bar-gender-detail"),
+            y: 520,
+            lastKnownRank: null,
+            badgeText: "",
+            badgeType: "",
+            badgeExpireCursor: -1,
+          });
+        }
+
+        updateViewportHeight();
+      }
+
+      function getRowStepHeight() {
+        if (state.topN > 20) return 30;
+        if (state.topN > 15) return 38;
+        return 48;
+      }
+
+      function updateViewportHeight() {
+        const stepH = getRowStepHeight();
+        const rowH = Math.max(24, stepH - 6);
+        document.documentElement.style.setProperty("--row-height", `${rowH}px`);
+        const minHeight = Math.max(500, state.topN * stepH + 42);
+        el.raceViewport.style.minHeight = `${minHeight}px`;
+      }
+
+      // ── Render Dynamic X-Axis Gridlines ──
+      function renderGridLines(maxScale) {
+        let step = 2;
+        if (maxScale > 60) step = 10;
+        else if (maxScale > 25) step = 5;
+        else if (maxScale > 12) step = 2;
+        else step = 1;
+
+        const ticks = [];
+        for (let v = 0; v <= Math.floor(maxScale); v += step) {
+          ticks.push(v);
+        }
+
+        el.gridLayer.innerHTML = ticks
+          .map((v) => {
+            const pct = (v / maxScale) * 100;
+            return `<div class="grid-line" style="left: ${pct.toFixed(2)}%;">
+              <span class="grid-line-label">${v}명</span>
+            </div>`;
+          })
+          .join("");
+      }
+
+      // ── Interpolate & Render Frame at `state.cursor` ──
+      function renderAtCursor(dtSec = 0, snapY = false) {
+        const frames = state.frames;
+        if (!frames.length) return;
+
+        const maxIndex = frames.length - 1;
+        const clamped = Math.max(0, Math.min(maxIndex, state.cursor));
+        const idxA = Math.floor(clamped);
+        const idxB = Math.min(maxIndex, idxA + 1);
+        const t = clamped - idxA;
+        // Smooth ease for count progression within the 1-hour step
+        const easeT = t * t * (3 - 2 * t);
+
+        const frameA = frames[idxA];
+        const frameB = frames[idxB];
+        const activeFrame = t > 0.5 ? frameB : frameA;
+
+        // Header & HUD updates
+        el.clockDate.textContent = activeFrame.label.date;
+        el.clockHour.textContent = activeFrame.label.hour_range;
+
+        const interpTotal = Math.round(frameA.total + (frameB.total - frameA.total) * easeT);
+        const interpMale = Math.round(frameA.male + (frameB.male - frameA.male) * easeT);
+        const interpFemale = Math.round(frameA.female + (frameB.female - frameA.female) * easeT);
+
+        el.kpiTotal.textContent = interpTotal.toLocaleString();
+        el.kpiMale.textContent = `남 ${interpMale}명`;
+        el.kpiFemale.textContent = `여 ${interpFemale}명`;
+        el.kpiMajors.textContent = activeFrame.participating_majors;
+        el.kpiTotalMajors.textContent = `/ ${state.rawPayload.meta.total_majors}개`;
+
+        el.hudBigCount.textContent = `${interpTotal}명`;
+        el.hudSubClock.textContent = `${activeFrame.label.short_date} ${activeFrame.label.hour_short}`;
+
+        const currentHourDelta = frameB.delta_total > 0 && t > 0.05 ? frameB.delta_total : frameA.delta_total;
+        if (currentHourDelta > 0) {
+          el.clockDelta.textContent = `+${currentHourDelta}명 신규 접수`;
+          el.clockDelta.classList.add("visible");
+        } else {
+          el.clockDelta.classList.remove("visible");
+        }
+
+        el.emptyStageHint.classList.toggle("visible", interpTotal === 0 && !state.isPlaying);
+
+        // Build lookup maps for frameA and frameB items
+        const mapA = new Map();
+        for (const item of frameA.items) mapA.set(item.major_id, item);
+        const mapB = new Map();
+        for (const item of frameB.items) mapB.set(item.major_id, item);
+
+        // Compute interpolated counts & determine instantaneous ranking
+        const merged = [];
+        for (const m of state.rawPayload.majors) {
+          const mid = m.major_id;
+          const a = mapA.get(mid);
+          const b = mapB.get(mid);
+          const countA = a ? a.count : 0;
+          const countB = b ? b.count : 0;
+          const maleA = a ? a.male : 0;
+          const maleB = b ? b.male : 0;
+          const femaleA = a ? a.female : 0;
+          const femaleB = b ? b.female : 0;
+
+          const count = countA + (countB - countA) * easeT;
+          const male = maleA + (maleB - maleA) * easeT;
+          const female = femaleA + (femaleB - femaleA) * easeT;
+          const delta = b && t > 0.08 ? b.delta : a ? a.delta : 0;
+
+          // Target rank prefers frameB rank once transition is underway
+          const rankA = a ? a.rank : 999;
+          const rankB = b ? b.rank : 999;
+          const authoritativeRank = t >= 0.35 ? rankB : rankA;
+
+          if (count > 0.01) {
+            merged.push({
+              major_id: mid,
+              count,
+              male,
+              female,
+              delta,
+              rankA,
+              rankB,
+              authoritativeRank,
+            });
+          } else {
+            merged.push({
+              major_id: mid,
+              count: 0,
+              male: 0,
+              female: 0,
+              delta: 0,
+              rankA: 999,
+              rankB: 999,
+              authoritativeRank: 999,
+            });
+          }
+        }
+
+        // Sort active items by authoritativeRank, then interpolated count DESC
+        merged.sort((x, y) => {
+          if (x.authoritativeRank !== y.authoritativeRank) {
+            return x.authoritativeRank - y.authoritativeRank;
+          }
+          return y.count - x.count;
+        });
+
+        const topCount = merged.length && merged[0].count > 0 ? merged[0].count : 5;
+        const targetMaxScale = Math.max(5, topCount * 1.12);
+        if (snapY) {
+          state.displayMaxCount = targetMaxScale;
+        } else {
+          state.displayMaxCount += (targetMaxScale - state.displayMaxCount) * Math.min(1, dtSec * 10 || 0.25);
+        }
+        renderGridLines(state.displayMaxCount);
+
+        const stepH = getRowStepHeight();
+        const hiddenY = (state.topN + 2) * stepH;
+        const smoothFactor = snapY ? 1 : 1 - Math.exp(-13 * Math.max(0.008, dtSec));
+
+        merged.forEach((item, sortedIdx) => {
+          const rs = state.rowStates.get(item.major_id);
+          if (!rs) return;
+
+          const displayRank = sortedIdx + 1;
+          const isVisible = item.count > 0.01 && displayRank <= state.topN;
+          const targetY = isVisible ? sortedIdx * stepH : hiddenY;
+
+          if (snapY || rs.el.style.opacity === "0") {
+            rs.y = targetY;
+          } else {
+            rs.y += (targetY - rs.y) * smoothFactor;
+          }
+
+          // Detect rank changes across hours
+          if (item.count > 0.01) {
+            if (rs.lastKnownRank === null && idxB > 1) {
+              rs.badgeText = "NEW";
+              rs.badgeType = "new";
+              rs.badgeExpireCursor = state.cursor + 3.5;
+            } else if (rs.lastKnownRank !== null && displayRank !== rs.lastKnownRank) {
+              const diff = rs.lastKnownRank - displayRank;
+              if (diff > 0) {
+                rs.badgeText = `▲${diff}`;
+                rs.badgeType = "up";
+                rs.badgeExpireCursor = state.cursor + 3.5;
+              } else if (diff < 0) {
+                rs.badgeText = `▼${Math.abs(diff)}`;
+                rs.badgeType = "down";
+                rs.badgeExpireCursor = state.cursor + 2.5;
+              }
+            }
+            rs.lastKnownRank = displayRank;
+          } else {
+            rs.lastKnownRank = null;
+          }
+
+          const isOvertaking = Math.abs(targetY - rs.y) > 6 && rs.badgeType === "up";
+          rs.el.classList.toggle("is-overtaking", isOvertaking);
+
+          rs.el.style.opacity = isVisible ? "1" : "0";
+          rs.el.style.transform = `translate3d(0, ${rs.y.toFixed(1)}px, 0)`;
+          rs.el.dataset.rank = String(displayRank);
+          rs.rankBadgeEl.textContent = String(displayRank);
+
+          if (rs.badgeExpireCursor > state.cursor && rs.badgeText) {
+            rs.rankChangeEl.style.display = "inline-block";
+            rs.rankChangeEl.className = `rank-change ${rs.badgeType}`;
+            rs.rankChangeEl.textContent = rs.badgeText;
+          } else {
+            rs.rankChangeEl.style.display = "none";
+          }
+
+          const widthPct = Math.max(0.8, Math.min(100, (item.count / state.displayMaxCount) * 100));
+          rs.barFillEl.style.width = `${widthPct.toFixed(2)}%`;
+          rs.barFillEl.classList.toggle("has-delta", item.delta > 0);
+
+          const roundedCount = Math.round(item.count);
+          const roundedMale = Math.round(item.male);
+          const roundedFemale = Math.round(item.female);
+          rs.barCountEl.textContent = `${roundedCount}명`;
+
+          const malePct = item.count > 0 ? (item.male / item.count) * 100 : 50;
+          rs.maleSplitEl.style.width = `${malePct.toFixed(1)}%`;
+          rs.barGenderDetailEl.textContent = `(남 ${roundedMale} · 여 ${roundedFemale})`;
+
+          if (item.delta > 0) {
+            rs.barDeltaEl.style.display = "inline-block";
+            rs.barDeltaEl.textContent = `+${item.delta}`;
+          } else {
+            rs.barDeltaEl.style.display = "none";
+          }
+        });
+
+        // Update Timeline Scrubber UI
+        const progressPct = maxIndex > 0 ? (clamped / maxIndex) * 100 : 0;
+        el.scrubberProgress.style.width = `${progressPct.toFixed(2)}%`;
+        el.timelineFrameInfo.textContent = `${idxB} / ${maxIndex} 시간 구간 (${activeFrame.label.full})`;
+
+        const histChildren = el.histogramBars.children;
+        for (let i = 0; i < histChildren.length; i++) {
+          const barEl = histChildren[i];
+          barEl.classList.toggle("passed", i <= idxB);
+          barEl.classList.toggle("active-now", i === idxB);
+        }
+      }
+
+      // ── Compute Playback Speed (Frames per Second) ──
+      function computeBaseStepRate() {
+        const totalFrames = Math.max(1, state.frames.length - 1);
+        if (state.paceMode === "smart") {
+          // Calculate effective weighted length where idle hours take 0.25 weight
+          let weightedUnits = 0;
+          for (let i = 1; i < state.frames.length; i++) {
+            weightedUnits += state.frames[i].has_activity ? 1.0 : 0.25;
+          }
+          return Math.max(0.5, weightedUnits / state.targetDurationSec);
+        }
+        return totalFrames / state.targetDurationSec;
+      }
+
+      // ── Animation Loop ──
+      function tick(now) {
+        if (!state.isPlaying) return;
+        if (state.lastRafTime === null) state.lastRafTime = now;
+        const dtSec = Math.min(0.1, (now - state.lastRafTime) / 1000);
+        state.lastRafTime = now;
+
+        const maxIndex = Math.max(0, state.frames.length - 1);
+        const baseRate = computeBaseStepRate();
+
+        // In smart mode, glide 4x faster across 0-registration hours
+        const nextIdx = Math.min(maxIndex, Math.floor(state.cursor) + 1);
+        const nextFrame = state.frames[nextIdx];
+        let speedMultiplier = 1.0;
+        if (state.paceMode === "smart" && nextFrame && !nextFrame.has_activity) {
+          speedMultiplier = 4.0;
+        }
+
+        state.cursor += baseRate * speedMultiplier * dtSec;
+
+        if (state.cursor >= maxIndex) {
+          state.cursor = maxIndex;
+          renderAtCursor(dtSec, false);
+          pauseAnimation(true);
+          return;
+        }
+
+        renderAtCursor(dtSec, false);
+        state.rafId = requestAnimationFrame(tick);
+      }
+
+      function updatePlayButtonUI() {
+        const maxIndex = Math.max(0, state.frames.length - 1);
+        const isAtEnd = state.cursor >= maxIndex - 0.001 && maxIndex > 0;
+        el.btnPlay.classList.toggle("is-playing", state.isPlaying);
+
+        if (state.isPlaying) {
+          el.labelPlay.textContent = "일시정지";
+          el.iconPlay.innerHTML = `<path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z"/>`;
+        } else if (isAtEnd) {
+          el.labelPlay.textContent = "다시 재생";
+          el.iconPlay.innerHTML = `<path d="M8 5.14v14l11-7-11-7z"/>`;
+        } else {
+          el.labelPlay.textContent = "재생";
+          el.iconPlay.innerHTML = `<path d="M8 5.14v14l11-7-11-7z"/>`;
+        }
+      }
+
+      function startAnimation(fromStart = false) {
+        if (!state.frames.length) return;
+        const maxIndex = Math.max(0, state.frames.length - 1);
+
+        if (fromStart || state.cursor >= maxIndex - 0.01) {
+          state.cursor = 0;
+          for (const rs of state.rowStates.values()) {
+            rs.lastKnownRank = null;
+            rs.badgeText = "";
+            rs.badgeExpireCursor = -1;
+          }
+          renderAtCursor(0, true);
+        }
+
+        state.isPlaying = true;
+        state.lastRafTime = null;
+        updatePlayButtonUI();
+        cancelAnimationFrame(state.rafId);
+        state.rafId = requestAnimationFrame(tick);
+      }
+
+      function pauseAnimation(finished = false) {
+        state.isPlaying = false;
+        state.lastRafTime = null;
+        cancelAnimationFrame(state.rafId);
+        updatePlayButtonUI();
+        if (finished) {
+          showToast("최종 집계 시점까지 재생이 완료되었습니다.");
+        }
+      }
+
+      // ── Fetch Latest Data from Aurora Reader Endpoint ──
+      async function fetchRankings({ autoPlay = false, showSuccessToast = false } = {}) {
+        pauseAnimation(false);
+        el.btnRefresh.classList.add("loading");
+        el.btnRefresh.disabled = true;
+
+        try {
+          const res = await fetch(`/api/rankings?round=${encodeURIComponent(state.round)}&_t=${Date.now()}`, {
+            cache: "no-store",
+          });
+          const data = await res.json();
+          if (!res.ok || data.error) {
+            throw new Error(data.error || "데이터 조회 실패");
+          }
+
+          state.rawPayload = data;
+          state.majorMap.clear();
+          for (const m of data.majors) {
+            state.majorMap.set(m.major_id, m);
+          }
+
+          // Update Metadata Header
+          const meta = data.meta;
+          el.metaEndpoint.textContent = `Reader: ${meta.reader_endpoint}`;
+          el.metaEndpoint.title = meta.reader_endpoint_full;
+          el.metaFetchedAt.textContent = `조회 시각: ${meta.fetched_at}`;
+          el.metaRange.textContent = `총 ${meta.total_hours}시간 구간 (활동 ${meta.active_hours}시간) · 총 ${meta.total_registrations}명`;
+
+          rebuildFrames();
+          initMajorRows();
+
+          if (autoPlay && state.frames.length > 1) {
+            startAnimation(true);
+          } else {
+            // Position at initial frame (0) or show ready state, wait for user Play or show preview
+            state.cursor = 0;
+            renderAtCursor(0, true);
+            updatePlayButtonUI();
+          }
+
+          if (showSuccessToast) {
+            showToast(`최신 접수 데이터 ${meta.total_registrations}명 조회 완료 (${meta.fetched_at})`);
+          }
+        } catch (err) {
+          console.error(err);
+          showToast(`오류: ${err.message}`);
+        } finally {
+          el.btnRefresh.classList.remove("loading");
+          el.btnRefresh.disabled = false;
+        }
+      }
+
+      // ── Event Listeners ──
+      el.btnPlay.addEventListener("click", () => {
+        if (state.isPlaying) {
+          pauseAnimation(false);
+        } else {
+          startAnimation(false);
+        }
+      });
+
+      el.btnRestart.addEventListener("click", () => {
+        startAnimation(true);
+      });
+
+      el.btnRefresh.addEventListener("click", () => {
+        fetchRankings({ autoPlay: true, showSuccessToast: true });
+      });
+
+      // Round Filter
+      document.getElementById("roundSelect").addEventListener("click", (e) => {
+        const btn = e.target.closest(".seg-btn");
+        if (!btn) return;
+        document.querySelectorAll("#roundSelect .seg-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.round = btn.dataset.round;
+        fetchRankings({ autoPlay: true, showSuccessToast: true });
+      });
+
+      // Top N Filter
+      document.getElementById("topNSelect").addEventListener("click", (e) => {
+        const btn = e.target.closest(".seg-btn");
+        if (!btn) return;
+        document.querySelectorAll("#topNSelect .seg-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.topN = parseInt(btn.dataset.topn, 10);
+        updateViewportHeight();
+        renderAtCursor(0, true);
+      });
+
+      // Pace Mode Filter
+      document.getElementById("paceModeSelect").addEventListener("click", (e) => {
+        const btn = e.target.closest(".seg-btn");
+        if (!btn) return;
+        const wasPlaying = state.isPlaying;
+        pauseAnimation(false);
+        document.querySelectorAll("#paceModeSelect .seg-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.paceMode = btn.dataset.mode;
+        rebuildFrames();
+        state.cursor = 0;
+        renderAtCursor(0, true);
+        if (wasPlaying) startAnimation(true);
+      });
+
+      // Duration Filter
+      document.getElementById("durationSelect").addEventListener("click", (e) => {
+        const btn = e.target.closest(".seg-btn");
+        if (!btn) return;
+        document.querySelectorAll("#durationSelect .seg-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.targetDurationSec = parseInt(btn.dataset.duration, 10);
+      });
+
+      // Gender Split Toggle
+      document.getElementById("genderToggle").addEventListener("click", (e) => {
+        const btn = e.target.closest(".seg-btn");
+        if (!btn) return;
+        document.querySelectorAll("#genderToggle .seg-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.showGender = btn.dataset.gender === "on";
+        document.body.classList.toggle("show-gender", state.showGender);
+      });
+
+      // Step Buttons
+      el.btnPrevHour.addEventListener("click", () => {
+        pauseAnimation(false);
+        state.cursor = Math.max(0, Math.floor(state.cursor) - 1);
+        renderAtCursor(0, true);
+        updatePlayButtonUI();
+      });
+
+      el.btnNextHour.addEventListener("click", () => {
+        pauseAnimation(false);
+        const maxIndex = Math.max(0, state.frames.length - 1);
+        state.cursor = Math.min(maxIndex, Math.floor(state.cursor) + 1);
+        renderAtCursor(0, true);
+        updatePlayButtonUI();
+      });
+
+      el.btnJumpEnd.addEventListener("click", () => {
+        pauseAnimation(false);
+        state.cursor = Math.max(0, state.frames.length - 1);
+        renderAtCursor(0, true);
+        updatePlayButtonUI();
+      });
+
+      // Scrubber Dragging
+      let isScrubbing = false;
+      function scrubToEvent(e) {
+        if (!state.frames.length) return;
+        const rect = el.scrubberContainer.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        state.cursor = ratio * (state.frames.length - 1);
+        renderAtCursor(0, true);
+        updatePlayButtonUI();
+      }
+
+      el.scrubberContainer.addEventListener("pointerdown", (e) => {
+        isScrubbing = true;
+        pauseAnimation(false);
+        el.scrubberContainer.setPointerCapture(e.pointerId);
+        scrubToEvent(e);
+      });
+
+      el.scrubberContainer.addEventListener("pointermove", (e) => {
+        if (!isScrubbing) return;
+        scrubToEvent(e);
+      });
+
+      el.scrubberContainer.addEventListener("pointerup", () => {
+        isScrubbing = false;
+      });
+
+      // Keyboard Shortcuts
+      window.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+        if (e.code === "Space") {
+          e.preventDefault();
+          el.btnPlay.click();
+        } else if (e.code === "ArrowLeft") {
+          e.preventDefault();
+          el.btnPrevHour.click();
+        } else if (e.code === "ArrowRight") {
+          e.preventDefault();
+          el.btnNextHour.click();
+        } else if (e.key === "r" || e.key === "R") {
+          if (!e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            el.btnRefresh.click();
+          }
+        }
+      });
+
+      // Initial Load: Fetch latest data from Aurora Reader and stand by at Frame 0 ready for Play
+      fetchRankings({ autoPlay: false, showSuccessToast: false });
+    })();
+  </script>
+</body>
+</html>

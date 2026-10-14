@@ -43,6 +43,10 @@ def aurora_host() -> str:
     return _require("AURORA_WRITER_ENDPOINT")
 
 
+def aurora_reader_host() -> str:
+    return _require("AURORA_READER_ENDPOINT")
+
+
 def connect(*, read_only: bool = False) -> psycopg.Connection:
     """Aurora 라이터 엔드포인트에 연결한다. read_only=True이면 쓰기가 서버에서 거부된다."""
     port = int(_require("AURORA_DB_PORT"))
@@ -58,4 +62,26 @@ def connect(*, read_only: bool = False) -> psycopg.Connection:
     )
     if read_only:
         conn.read_only = True
+    return conn
+
+
+def connect_reader() -> psycopg.Connection:
+    """Aurora 리더(읽기 전용) 엔드포인트(AURORA_READER_ENDPOINT)에만 연결한다.
+
+    리더 인스턴스 접속에 더해 세션/트랜잭션 수준에서도 read_only=True를 강제하여
+    데이터 수정(INSERT/UPDATE/DELETE/DDL 등)이 절대 일어날 수 없게 보장한다.
+    """
+    port = int(_require("AURORA_DB_PORT"))
+    conn = psycopg.connect(
+        host=aurora_reader_host(),
+        port=port,
+        user=_require("AURORA_DB_USER"),
+        password=_require("AURORA_DB_PASSWORD"),
+        dbname=_require("AURORA_DB_NAME"),
+        connect_timeout=60,  # Serverless v2가 깨어나는 시간을 고려한다.
+        application_name="qr-match-reader",
+        options="-c default_transaction_read_only=on",
+        **_ssl_options(),
+    )
+    conn.read_only = True
     return conn

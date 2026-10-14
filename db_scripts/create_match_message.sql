@@ -1,7 +1,7 @@
 CREATE TABLE match_message (
   message_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   round smallint NOT NULL,
-  rank integer NOT NULL,
+  rank integer,                          -- 미매칭 안내 문자는 순위가 없다
   registration_id text NOT NULL REFERENCES registration(registration_id) ON DELETE CASCADE,
   role text NOT NULL CHECK (role IN ('male', 'female')),
   receiver_phone text NOT NULL,
@@ -18,9 +18,7 @@ CREATE TABLE match_message (
   success_cnt text,
   test_yn text,
   error_text text,
-  sent_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT match_message_result_fkey
-    FOREIGN KEY (round, rank) REFERENCES match_result(round, rank) ON DELETE CASCADE
+  sent_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_match_message_result ON match_message (round, rank);

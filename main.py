@@ -24,8 +24,6 @@ W_EX = 3.0
 
 # 최종 점수가 같을 때의 마지막 순서를 정하는 고정 시드. (실행마다 같은 결과를 내기 위함)
 TIE_BREAK_SEED = "qrious-ex-v2"
-# 추출이 안 된 접수가 있어도 그 접수의 ex 텍스트를 "없음"으로 보고 진행하려면 1.
-ALLOW_UNEXTRACTED = os.getenv("EX_ALLOW_UNEXTRACTED") == "1"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(ROOT, "matching_state")
@@ -230,12 +228,23 @@ def load_scored_rows(path: str = SCORES_CSV) -> list[dict]:
 
 
 def ensure_scores_header_current(path: str = SCORES_CSV) -> None:
-    """이전 방식으로 쌓은 점수 CSV에 새 방식 점수를 이어 붙이지 않게 막는다."""
+    """이전 방식으로 쌓은 점수 CSV에 새 방식 점수를 이어 붙이지 않게 막는다. (열 구성과 ex 채점 버전)"""
+    from score_functions.ex import EX_DETAIL_VERSION
+
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         return
     with open(path, encoding="utf-8", newline="") as f:
-        header = next(csv.reader(f), [])
-    if header != SCORE_FIELDS:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames or []
+        version = next(
+            (
+                (_parse_ex_detail(row.get("ex_detail")) or {}).get("version")
+                for row in reader
+                if row.get("status") == "scored"
+            ),
+            EX_DETAIL_VERSION,
+        )
+    if header != SCORE_FIELDS or version != EX_DETAIL_VERSION:
         raise RuntimeError(
             f"{path}가 이전 채점 방식으로 만든 파일입니다. 이어서 계산하면 점수 방식이 섞입니다. "
             "matching_state 폴더를 비운 뒤 처음부터 다시 실행해 주세요."
@@ -462,63 +471,33 @@ def pair_age_ok(m: dict, w: dict) -> bool:
     )
 
 
-class ExContext:
-    """ex 점수 계산에 필요한 것: 접수별 추출 결과와 항목 채점기."""
+def prepare_ex_scoring(conn, students: dict, male_ids: list[str], female_ids: list[str]):
+    """매칭을 시작하기 전에, 연령 조건을 통과하는 모든 쌍의 ex 평가를 미리 끝내 ex_pair_score에 저장한다.
 
-    def __init__(self, traits: dict, scorer) -> None:
-        self.traits = traits  # registration_id -> {"want": dict | None, "have": dict | None}
-        self.scorer = scorer
-
-
-def prepare_ex_scoring(conn, students: dict, male_ids: list[str], female_ids: list[str]) -> ExContext:
-    """매칭을 시작하기 전에 ex 점수에 필요한 것을 모두 준비한다.
-
-    1. ex_trait(추출 결과)가 모든 ex 텍스트에 대해 유효한지 확인한다.
-    2. 연령 조건을 통과하는 모든 쌍의 항목을 미리 채점해 ex_item_score에 저장한다.
-       이후 쌍별 채점은 저장된 값만 읽는다. (같은 입력이면 다시 돌려도 점수가 바뀌지 않는다.)
+    이상형 원문과 매력 원문을 그대로 평가하므로 ex_trait 추출이 필요 없다.
+    이후 쌍별 채점은 저장된 값만 읽는다. (같은 원문이면 다시 돌려도 점수가 바뀌지 않는다.)
     """
-    from score_functions.ex import COMPARE_PROMPT_VERSION, AuroraItemStore, ItemScorer
-    from score_functions.ex_traits import load_trait_book, trait_problems, usable_traits
+    from score_functions.ex import PAIR_PROMPT_VERSION, AuroraPairStore, PairScorer
     from score_functions.llm import resolve_model
 
-    book = load_trait_book(conn, list(students))
-    problems = trait_problems(students, book)
-    if problems:
-        shown = "\n".join(f"  - {line}" for line in problems[:20])
-        more = f"\n  ... 외 {len(problems) - 20}건" if len(problems) > 20 else ""
-        message = (
-            f"유효한 추출 결과(ex_trait)가 없는 ex 텍스트가 {len(problems)}건 있습니다.\n{shown}{more}\n"
-            "python extract_ex_traits.py --execute 로 추출한 뒤 다시 실행해 주세요."
-        )
-        if not ALLOW_UNEXTRACTED:
-            raise RuntimeError(message + "\n(무시하고 진행하려면 EX_ALLOW_UNEXTRACTED=1. 그 접수의 ex 텍스트는 없음으로 처리됩니다.)")
-        print("경고: " + message + "\nEX_ALLOW_UNEXTRACTED=1이므로 그 접수의 ex 텍스트는 없음으로 처리합니다.")
-
-    traits = {
-        registration_id: {
-            side: usable_traits(student.get(f"ex_{side}"), book.get(registration_id, side))
-            for side in ("want", "have")
-        }
-        for registration_id, student in students.items()
-    }
-
     model = resolve_model()
-    store = AuroraItemStore(conn, model, COMPARE_PROMPT_VERSION)
+    store = AuroraPairStore(conn, model, PAIR_PROMPT_VERSION)
     cached = store.load()
-    print(f"항목 점수 캐시: {cached}건 (모델 {model}, 프롬프트 {COMPARE_PROMPT_VERSION})")
-    scorer = ItemScorer(store, model)
+    print(f"ex 평가 캐시: {cached}건 (모델 {model}, 프롬프트 {PAIR_PROMPT_VERSION})")
+    scorer = PairScorer(store, model)
 
     directed = []
     for mid in male_ids:
         for wid in female_ids:
-            if pair_age_ok(students[mid], students[wid]):
-                directed.append((traits[mid]["want"], traits[wid]["have"]))
-                directed.append((traits[wid]["want"], traits[mid]["have"]))
+            m, w = students[mid], students[wid]
+            if pair_age_ok(m, w):
+                directed.append((m.get("ex_want"), w.get("ex_have")))
+                directed.append((w.get("ex_want"), m.get("ex_have")))
     scorer.prewarm(directed, workers=int(os.getenv("EX_WORKERS", "6")))
-    return ExContext(traits, scorer)
+    return scorer
 
 
-def score_remaining_pairs(students: dict, start_row: int, total: int, ex_ctx: ExContext) -> None:
+def score_remaining_pairs(students: dict, start_row: int, total: int, scorer) -> None:
     from score_functions.mbti import mbti_score
     from score_functions.tag import tag_inclusion_min, tag_score
     from score_functions.ex import ex_score, final_score as combine_final_score
@@ -553,9 +532,7 @@ def score_remaining_pairs(students: dict, start_row: int, total: int, ex_ctx: Ex
         ms = mbti_score(m["mbti"], w["mbti"])
         tag_args = (m["want"] or [], m["have"] or [], w["want"] or [], w["have"] or [])
         ts = tag_score(*tag_args)
-        m_traits = ex_ctx.traits[mid]
-        w_traits = ex_ctx.traits[wid]
-        ex = ex_score(m_traits["want"], m_traits["have"], w_traits["want"], w_traits["have"], ex_ctx.scorer)
+        ex = ex_score(m.get("ex_want"), m.get("ex_have"), w.get("ex_want"), w.get("ex_have"), scorer)
         final_score = combine_final_score(ms, ts, ex.score, ex.weight_mode, W_MBTI, W_TAG, W_EX)
         append_score_row(
             {
@@ -607,13 +584,13 @@ def main() -> None:
         pairs_ok = os.path.exists(PAIRS_CSV) and stored_total == expected_total
         fresh = phase in {"", "done"} or not pairs_ok
 
-        # 추출 결과 확인과 항목 미리 채점은 match_result를 지우기 전에 끝낸다.
+        # ex 미리 평가는 match_result를 지우기 전에 끝낸다.
         # 여기서 실패해도 기존 결과는 그대로 남는다.
-        ex_ctx = None
+        scorer = None
         if fresh or phase == "scoring":
             if not fresh:
                 ensure_scores_header_current()
-            ex_ctx = prepare_ex_scoring(conn, students, male_ids, female_ids)
+            scorer = prepare_ex_scoring(conn, students, male_ids, female_ids)
 
         if fresh:
             total = start_fresh_job(male_ids, female_ids, conn)
@@ -625,7 +602,7 @@ def main() -> None:
             print(f"이전 작업 재개: phase={phase}, {start}/{total}행부터")
 
         if phase == "scoring" and start <= total:
-            score_remaining_pairs(students, start, total, ex_ctx)
+            score_remaining_pairs(students, start, total, scorer)
 
         if last_score_row_num() < total:
             raise RuntimeError("점수 CSV가 곱집합보다 짧습니다. 다시 실행하면 이어서 계산합니다.")
